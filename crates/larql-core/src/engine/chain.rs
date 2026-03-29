@@ -26,9 +26,7 @@ impl ChainResult {
     }
 }
 
-const DEFAULT_STOP: &[char] = &[
-    '.', '\n', ',', ';', '!', '?', '(', ')', '[', ']', '<', '>',
-];
+const DEFAULT_STOP: &[char] = &['.', '\n', ',', ';', '!', '?', '(', ')', '[', ']', '<', '>'];
 
 /// Chain forward passes to assemble a multi-token answer.
 pub fn chain_tokens(

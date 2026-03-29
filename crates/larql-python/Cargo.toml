@@ -12,5 +12,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 larql-core = { path = "../larql-core" }
+larql-inference = { path = "../larql-inference" }
 pyo3 = { version = "0.23", features = ["extension-module"] }
 serde_json = { workspace = true }

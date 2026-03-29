@@ -1,6 +1,6 @@
-use larql_core::*;
 use larql_core::engine::mock_provider::MockProvider;
 use larql_core::engine::templates::PromptTemplate;
+use larql_core::*;
 
 fn geo_templates() -> TemplateRegistry {
     let mut reg = TemplateRegistry::new();
@@ -53,7 +53,14 @@ fn test_bfs_basic() {
 
     let mut graph = Graph::new();
     let mut callbacks = larql_core::engine::bfs::SilentCallbacks;
-    let result = extract_bfs(&provider, &templates, &seeds, &config, &mut graph, &mut callbacks);
+    let result = extract_bfs(
+        &provider,
+        &templates,
+        &seeds,
+        &config,
+        &mut graph,
+        &mut callbacks,
+    );
 
     assert_eq!(result.entities_visited, 1);
     assert!(result.edges_added >= 2); // capital-of and currency at minimum
@@ -75,7 +82,14 @@ fn test_bfs_depth_1_follows_entities() {
 
     let mut graph = Graph::new();
     let mut callbacks = larql_core::engine::bfs::SilentCallbacks;
-    let result = extract_bfs(&provider, &templates, &seeds, &config, &mut graph, &mut callbacks);
+    let result = extract_bfs(
+        &provider,
+        &templates,
+        &seeds,
+        &config,
+        &mut graph,
+        &mut callbacks,
+    );
 
     // Should have visited France + discovered entities (Paris, Euro)
     assert!(result.entities_visited > 1);
@@ -97,7 +111,14 @@ fn test_bfs_multiple_seeds() {
 
     let mut graph = Graph::new();
     let mut callbacks = larql_core::engine::bfs::SilentCallbacks;
-    extract_bfs(&provider, &templates, &seeds, &config, &mut graph, &mut callbacks);
+    extract_bfs(
+        &provider,
+        &templates,
+        &seeds,
+        &config,
+        &mut graph,
+        &mut callbacks,
+    );
 
     assert!(graph.exists("France", "capital-of", "Paris"));
     assert!(graph.exists("Germany", "capital-of", "Berlin"));
@@ -117,7 +138,14 @@ fn test_bfs_respects_max_entities() {
 
     let mut graph = Graph::new();
     let mut callbacks = larql_core::engine::bfs::SilentCallbacks;
-    let result = extract_bfs(&provider, &templates, &seeds, &config, &mut graph, &mut callbacks);
+    let result = extract_bfs(
+        &provider,
+        &templates,
+        &seeds,
+        &config,
+        &mut graph,
+        &mut callbacks,
+    );
 
     assert_eq!(result.entities_visited, 1);
 }
@@ -125,9 +153,11 @@ fn test_bfs_respects_max_entities() {
 #[test]
 fn test_bfs_respects_min_confidence() {
     // Provider returns low confidence
-    let provider = MockProvider::with_knowledge(vec![
-        ("The capital of France is".into(), "Paris".into(), 0.1),
-    ]);
+    let provider = MockProvider::with_knowledge(vec![(
+        "The capital of France is".into(),
+        "Paris".into(),
+        0.1,
+    )]);
     let templates = geo_templates();
     let seeds = vec!["France".to_string()];
     let config = BfsConfig {
@@ -139,7 +169,14 @@ fn test_bfs_respects_min_confidence() {
 
     let mut graph = Graph::new();
     let mut callbacks = larql_core::engine::bfs::SilentCallbacks;
-    extract_bfs(&provider, &templates, &seeds, &config, &mut graph, &mut callbacks);
+    extract_bfs(
+        &provider,
+        &templates,
+        &seeds,
+        &config,
+        &mut graph,
+        &mut callbacks,
+    );
 
     // Edge should not be added (confidence 0.1 < threshold 0.5)
     assert!(!graph.exists("France", "capital-of", "Paris"));
@@ -154,7 +191,14 @@ fn test_bfs_empty_provider() {
 
     let mut graph = Graph::new();
     let mut callbacks = larql_core::engine::bfs::SilentCallbacks;
-    let result = extract_bfs(&provider, &templates, &seeds, &config, &mut graph, &mut callbacks);
+    let result = extract_bfs(
+        &provider,
+        &templates,
+        &seeds,
+        &config,
+        &mut graph,
+        &mut callbacks,
+    );
 
     assert_eq!(result.entities_visited, 1);
     assert_eq!(result.edges_added, 0);
@@ -175,7 +219,14 @@ fn test_bfs_no_duplicate_visits() {
 
     let mut graph = Graph::new();
     let mut callbacks = larql_core::engine::bfs::SilentCallbacks;
-    extract_bfs(&provider, &templates, &seeds, &config, &mut graph, &mut callbacks);
+    extract_bfs(
+        &provider,
+        &templates,
+        &seeds,
+        &config,
+        &mut graph,
+        &mut callbacks,
+    );
 
     // France -> Paris -> France loop: France should only be visited once
     // Check no duplicate edges
@@ -197,7 +248,14 @@ fn test_bfs_edges_have_source_parametric() {
 
     let mut graph = Graph::new();
     let mut callbacks = larql_core::engine::bfs::SilentCallbacks;
-    extract_bfs(&provider, &templates, &seeds, &config, &mut graph, &mut callbacks);
+    extract_bfs(
+        &provider,
+        &templates,
+        &seeds,
+        &config,
+        &mut graph,
+        &mut callbacks,
+    );
 
     for edge in graph.edges() {
         assert_eq!(edge.source, SourceType::Parametric);
@@ -218,7 +276,14 @@ fn test_bfs_edges_have_metadata() {
 
     let mut graph = Graph::new();
     let mut callbacks = larql_core::engine::bfs::SilentCallbacks;
-    extract_bfs(&provider, &templates, &seeds, &config, &mut graph, &mut callbacks);
+    extract_bfs(
+        &provider,
+        &templates,
+        &seeds,
+        &config,
+        &mut graph,
+        &mut callbacks,
+    );
 
     for edge in graph.edges() {
         let meta = edge.metadata.as_ref().unwrap();
@@ -242,7 +307,14 @@ fn test_bfs_result_counts() {
 
     let mut graph = Graph::new();
     let mut callbacks = larql_core::engine::bfs::SilentCallbacks;
-    let result = extract_bfs(&provider, &templates, &seeds, &config, &mut graph, &mut callbacks);
+    let result = extract_bfs(
+        &provider,
+        &templates,
+        &seeds,
+        &config,
+        &mut graph,
+        &mut callbacks,
+    );
 
     assert_eq!(result.edges_added, graph.edge_count());
     assert!(result.total_forward_passes > 0);

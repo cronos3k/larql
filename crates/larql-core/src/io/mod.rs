@@ -1,4 +1,5 @@
 pub mod checkpoint;
+pub mod csv;
 pub mod format;
 pub mod json;
 pub mod msgpack;
@@ -12,10 +13,7 @@ pub use format::Format;
 pub fn load(path: impl AsRef<Path>) -> Result<Graph, GraphError> {
     let path = path.as_ref();
     let fmt = Format::from_path(path).ok_or_else(|| {
-        GraphError::Deserialize(format!(
-            "unrecognised file extension: {}",
-            path.display()
-        ))
+        GraphError::Deserialize(format!("unrecognised file extension: {}", path.display()))
     })?;
     load_with_format(path, fmt)
 }
@@ -33,10 +31,7 @@ pub fn load_with_format(path: impl AsRef<Path>, fmt: Format) -> Result<Graph, Gr
 pub fn save(graph: &Graph, path: impl AsRef<Path>) -> Result<(), GraphError> {
     let path = path.as_ref();
     let fmt = Format::from_path(path).ok_or_else(|| {
-        GraphError::Deserialize(format!(
-            "unrecognised file extension: {}",
-            path.display()
-        ))
+        GraphError::Deserialize(format!("unrecognised file extension: {}", path.display()))
     })?;
     save_with_format(graph, path, fmt)
 }

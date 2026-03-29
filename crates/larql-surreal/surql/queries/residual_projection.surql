@@ -1,0 +1,17 @@
+-- Project a residual vector against gate features to discover factual edges
+-- Usage: replace $residual with the L25 residual for an entity
+--
+-- This is the core discovery query: which L26 gate features activate
+-- for this entity's residual? Each match is a candidate factual edge.
+--
+-- SELECT id, layer, feature, top_token, c_score,
+--        vector::similarity::cosine(vector, $residual) AS activation
+-- FROM ffn_gate
+-- WHERE layer = 26
+-- ORDER BY activation DESC
+-- LIMIT 100;
+--
+-- Then for each activated gate feature, look up what it produces:
+-- SELECT id, top_token, c_score
+-- FROM ffn_down
+-- WHERE layer = 26 AND feature = $feature_id;

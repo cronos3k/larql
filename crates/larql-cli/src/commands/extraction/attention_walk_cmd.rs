@@ -4,8 +4,9 @@ use std::time::Instant;
 
 use clap::Args;
 use indicatif::{ProgressBar, ProgressStyle};
-use larql_core::walker::weight_walker::{LayerResult, WalkCallbacks, WalkConfig};
 use larql_core::*;
+use larql_inference::walker::attention_walker::{AttentionLayerResult, AttentionWalker};
+use larql_inference::walker::weight_walker::{LayerResult, WalkCallbacks, WalkConfig};
 
 #[derive(Args)]
 pub struct AttentionWalkArgs {
@@ -153,7 +154,7 @@ pub fn run(args: AttentionWalkArgs) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let start = Instant::now();
-    let mut results: Vec<walker::attention_walker::AttentionLayerResult> = Vec::new();
+    let mut results: Vec<AttentionLayerResult> = Vec::new();
 
     for &layer in &pending {
         let result = walker.walk_layer(layer, &config, &mut graph, &mut callbacks)?;

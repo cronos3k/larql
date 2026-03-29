@@ -52,8 +52,7 @@ pub fn extract_bfs(
     callbacks: &mut dyn BfsCallbacks,
 ) -> BfsResult {
     let mut visited: HashSet<String> = HashSet::new();
-    let mut queue: VecDeque<(String, u32)> =
-        seeds.iter().map(|s| (s.clone(), 0u32)).collect();
+    let mut queue: VecDeque<(String, u32)> = seeds.iter().map(|s| (s.clone(), 0u32)).collect();
 
     let mut total_passes: usize = 0;
     let mut edges_added: usize = 0;
@@ -77,13 +76,8 @@ pub fn extract_bfs(
                 1
             };
 
-            let result = match chain_tokens(
-                provider,
-                &prompt,
-                max_tok,
-                config.min_confidence,
-                None,
-            ) {
+            let result = match chain_tokens(provider, &prompt, max_tok, config.min_confidence, None)
+            {
                 Ok(r) => r,
                 Err(_) => continue,
             };
@@ -98,10 +92,7 @@ pub fn extract_bfs(
                         "forward_passes",
                         serde_json::Value::from(result.num_passes as u64),
                     )
-                    .with_metadata(
-                        "model",
-                        serde_json::Value::from(provider.model_name()),
-                    );
+                    .with_metadata("model", serde_json::Value::from(provider.model_name()));
 
                 if !graph.exists(&entity, &template.relation, &result.answer) {
                     graph.add_edge(edge.clone());
@@ -111,10 +102,7 @@ pub fn extract_bfs(
 
                 // Queue valid entities for further exploration
                 let obj = result.answer.trim().to_string();
-                if !visited.contains(&obj)
-                    && depth < config.max_depth
-                    && is_valid_entity(&obj)
-                {
+                if !visited.contains(&obj) && depth < config.max_depth && is_valid_entity(&obj) {
                     queue.push_back((obj, depth + 1));
                 }
             }
@@ -176,9 +164,7 @@ mod tests {
         assert!(is_valid_entity("1756"));
         assert!(is_valid_entity("New York"));
         assert!(!is_valid_entity("the city"));
-        assert!(!is_valid_entity(
-            "a very long phrase that is not an entity"
-        ));
+        assert!(!is_valid_entity("a very long phrase that is not an entity"));
         assert!(!is_valid_entity("lowercase"));
         assert!(!is_valid_entity(""));
     }

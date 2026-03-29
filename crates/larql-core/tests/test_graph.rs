@@ -279,7 +279,10 @@ fn test_count() {
     assert_eq!(g.count(Some("currency"), None), 1);
     assert_eq!(g.count(None, Some(&SourceType::Parametric)), 2);
     assert_eq!(g.count(None, Some(&SourceType::Wikidata)), 1);
-    assert_eq!(g.count(Some("capital-of"), Some(&SourceType::Parametric)), 2);
+    assert_eq!(
+        g.count(Some("capital-of"), Some(&SourceType::Parametric)),
+        2
+    );
     assert_eq!(g.count(Some("nonexistent"), None), 0);
 }
 

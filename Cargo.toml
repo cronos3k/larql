@@ -1,12 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/larql-models",
     "crates/larql-core",
+    "crates/larql-inference",
+    "crates/larql-surreal",
     "crates/larql-cli",
     "crates/larql-python",
 ]
 default-members = [
+    "crates/larql-models",
     "crates/larql-core",
+    "crates/larql-inference",
+    "crates/larql-surreal",
     "crates/larql-cli",
 ]
 

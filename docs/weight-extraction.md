@@ -95,20 +95,40 @@ cargo run --release -p larql-cli -- vector-import output/ \
 
 ## 7. Query in SurrealDB
 
+### Interactive SQL shell
+
 ```bash
-# Which gate features fire for France?
+surreal sql --endpoint http://localhost:8000 --user root --pass root --ns larql --db gemma3_4b
+```
+
+This opens an interactive shell where you can run SurQL queries directly:
+
+```sql
+-- Count records per table
+SELECT count() FROM embeddings GROUP ALL;
+SELECT count() FROM ffn_gate GROUP ALL;
+SELECT count() FROM attn_ov GROUP ALL;
+
+-- Look up an embedding
+SELECT id, token, c_score FROM embeddings WHERE token = 'France';
+
+-- Find gate features that fire for France's embedding
+LET $france = (SELECT vector FROM embeddings WHERE token = 'France' LIMIT 1);
+SELECT id, layer, feature, top_token, c_score,
+       vector::similarity::cosine(vector, $france[0].vector) AS similarity
+FROM ffn_gate
+WHERE layer = 26
+ORDER BY similarity DESC
+LIMIT 20;
+```
+
+### Via curl
+
+```bash
 curl -s http://localhost:8000/sql \
     -H "surreal-ns: larql" -H "surreal-db: gemma3_4b" \
     -H "Authorization: Basic $(echo -n root:root | base64)" \
-    --data "
-        LET \$france = (SELECT vector FROM embeddings WHERE token = 'France' LIMIT 1);
-        SELECT id, layer, feature, top_token, c_score,
-               vector::similarity::cosine(vector, \$france[0].vector) AS similarity
-        FROM ffn_gate
-        WHERE layer = 26
-        ORDER BY similarity DESC
-        LIMIT 20;
-    "
+    --data "SELECT count() FROM embeddings GROUP ALL;"
 ```
 
 See `surql/queries/` for more example queries.

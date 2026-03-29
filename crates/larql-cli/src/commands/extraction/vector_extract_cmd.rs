@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use clap::Args;
 use indicatif::{ProgressBar, ProgressStyle};
-use larql_core::walker::vector_extractor::{
+use larql_inference::walker::vector_extractor::{
     ExtractCallbacks, ExtractConfig, VectorExtractor, ALL_COMPONENTS,
 };
 

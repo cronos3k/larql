@@ -1,0 +1,9 @@
+-- Find which FFN gate features fire for a given entity embedding
+-- Usage: replace $entity_vector with the embedding vector for the entity
+--
+-- SELECT id, layer, feature, top_token, c_score,
+--        vector::similarity::cosine(vector, $entity_vector) AS similarity
+-- FROM ffn_gate
+-- WHERE layer >= 25 AND layer <= 33
+-- ORDER BY similarity DESC
+-- LIMIT 50;

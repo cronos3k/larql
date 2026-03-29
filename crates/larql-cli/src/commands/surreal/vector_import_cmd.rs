@@ -6,7 +6,7 @@ use std::time::Instant;
 use crate::utils::base64_encode;
 use clap::Args;
 use indicatif::{ProgressBar, ProgressStyle};
-use larql_core::loader::vector_loader::{self, discover_vector_files, VectorReader};
+use larql_surreal::loader::{self, discover_vector_files, VectorReader};
 
 #[derive(Args)]
 pub struct VectorImportArgs {
@@ -98,11 +98,11 @@ pub fn run(args: VectorImportArgs) -> Result<(), Box<dyn std::error::Error>> {
         for (component, path) in &files {
             let reader = VectorReader::open(path)?;
             let dim = reader.header().dimension;
-            let schema = vector_loader::schema_sql(component, dim)?;
+            let schema = loader::schema_sql(component, dim)?;
             f.write_all(schema.as_bytes())?;
             writeln!(f)?;
         }
-        let progress = vector_loader::progress_table_sql();
+        let progress = loader::progress_table_sql();
         f.write_all(progress.as_bytes())?;
         f.flush()?;
     }
@@ -119,14 +119,24 @@ pub fn run(args: VectorImportArgs) -> Result<(), Box<dyn std::error::Error>> {
 
         // Check completed layers for resume
         let completed_layers: std::collections::HashSet<usize> = if args.resume {
-            query_completed_layers(&args.endpoint, &args.ns, &args.db, &args.user, &args.pass, component)
-                .unwrap_or_default()
+            query_completed_layers(
+                &args.endpoint,
+                &args.ns,
+                &args.db,
+                &args.user,
+                &args.pass,
+                component,
+            )
+            .unwrap_or_default()
         } else {
             std::collections::HashSet::new()
         };
 
         if !completed_layers.is_empty() {
-            eprintln!("  {component}: resuming ({} layers already loaded)", completed_layers.len());
+            eprintln!(
+                "  {component}: resuming ({} layers already loaded)",
+                completed_layers.len()
+            );
         }
 
         // Count records for progress bar
@@ -183,7 +193,7 @@ pub fn run(args: VectorImportArgs) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 // Mark layer done
                 if let Some(prev) = current_layer {
-                    let mark = vec![vector_loader::mark_layer_done_sql(component, prev, layer_count)];
+                    let mark = vec![loader::mark_layer_done_sql(component, prev, layer_count)];
                     write_and_import_batch(
                         &args, &tmp_dir, component, 0, &mark, &args.ns, &args.db,
                     )?;
@@ -193,7 +203,7 @@ pub fn run(args: VectorImportArgs) -> Result<(), Box<dyn std::error::Error>> {
             current_layer = Some(record.layer);
             layer_count += 1;
 
-            let sql = vector_loader::single_insert_sql(component, &record);
+            let sql = loader::single_insert_sql(component, &record);
             batch.push(sql);
 
             if batch.len() >= args.batch_size {
@@ -225,10 +235,12 @@ pub fn run(args: VectorImportArgs) -> Result<(), Box<dyn std::error::Error>> {
         // Mark final layer done
         if let Some(last_layer) = current_layer {
             if layer_count > 0 {
-                let mark = vec![vector_loader::mark_layer_done_sql(component, last_layer, layer_count)];
-                write_and_import_batch(
-                    &args, &tmp_dir, component, 0, &mark, &args.ns, &args.db,
-                )?;
+                let mark = vec![loader::mark_layer_done_sql(
+                    component,
+                    last_layer,
+                    layer_count,
+                )];
+                write_and_import_batch(&args, &tmp_dir, component, 0, &mark, &args.ns, &args.db)?;
             }
         }
 
@@ -258,7 +270,7 @@ fn query_completed_layers(
     component: &str,
 ) -> Result<std::collections::HashSet<usize>, Box<dyn std::error::Error>> {
     let client = reqwest::blocking::Client::new();
-    let sql = vector_loader::completed_layers_sql(component);
+    let sql = loader::completed_layers_sql(component);
     let resp = client
         .post(format!("{}/sql", endpoint.trim_end_matches('/')))
         .header("surreal-ns", ns)

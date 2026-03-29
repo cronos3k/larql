@@ -17,10 +17,7 @@ impl CheckpointLog {
     /// Open or create a checkpoint log.
     pub fn open(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let path = path.as_ref().to_path_buf();
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
 
         // Count existing lines
         let count = if path.exists() {
@@ -35,8 +32,7 @@ impl CheckpointLog {
     /// Append an edge to the log.
     pub fn append(&mut self, edge: &Edge) -> std::io::Result<()> {
         let compact = CompactEdge::from(edge);
-        let json = serde_json::to_string(&compact)
-            .map_err(std::io::Error::other)?;
+        let json = serde_json::to_string(&compact).map_err(std::io::Error::other)?;
         writeln!(self.file, "{json}")?;
         self.file.flush()?;
         self.count += 1;

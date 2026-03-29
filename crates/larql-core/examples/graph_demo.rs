@@ -56,7 +56,10 @@ fn main() {
     println!("  Mozart:");
     println!("    Outgoing: {}", desc.outgoing.len());
     for e in &desc.outgoing {
-        println!("      --{}--> {} ({:.2})", e.relation, e.object, e.confidence);
+        println!(
+            "      --{}--> {} ({:.2})",
+            e.relation, e.object, e.confidence
+        );
     }
     println!("    Incoming: {}", desc.incoming.len());
 
@@ -81,7 +84,11 @@ fn main() {
     // ── Subgraph ──
     println!("\n--- Subgraph ---");
     let sub = graph.subgraph("France", 1);
-    println!("  France depth=1: {} edges, {} nodes", sub.edge_count(), sub.node_count());
+    println!(
+        "  France depth=1: {} edges, {} nodes",
+        sub.edge_count(),
+        sub.node_count()
+    );
 
     // ── Shortest Path ──
     println!("\n--- Shortest Path ---");
@@ -117,7 +124,11 @@ fn main() {
     println!("  Saved: {} ({} bytes)", tmp.display(), size);
 
     let loaded = load(&tmp).unwrap();
-    println!("  Loaded: {} edges, {} nodes", loaded.edge_count(), loaded.node_count());
+    println!(
+        "  Loaded: {} edges, {} nodes",
+        loaded.edge_count(),
+        loaded.node_count()
+    );
     assert_eq!(graph.edge_count(), loaded.edge_count());
     println!("  Roundtrip: OK");
 
@@ -125,7 +136,11 @@ fn main() {
     let tmp_bin = std::env::temp_dir().join("graph_demo.larql.bin");
     save(&graph, &tmp_bin).unwrap();
     let size_bin = std::fs::metadata(&tmp_bin).unwrap().len();
-    println!("  MsgPack: {} bytes ({:.0}% smaller)", size_bin, (1.0 - size_bin as f64 / size as f64) * 100.0);
+    println!(
+        "  MsgPack: {} bytes ({:.0}% smaller)",
+        size_bin,
+        (1.0 - size_bin as f64 / size as f64) * 100.0
+    );
 
     std::fs::remove_file(&tmp).ok();
     std::fs::remove_file(&tmp_bin).ok();

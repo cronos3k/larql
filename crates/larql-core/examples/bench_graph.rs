@@ -1,11 +1,28 @@
+//! Benchmark the graph engine — insert, query, search, algorithms, serialization.
+//!
+//! Run: cargo run --release -p larql-core --example bench_graph
+
 use larql_core::*;
 use std::time::Instant;
 
-fn main() {
-    let n = 100_000usize;
-    let mut graph = Graph::new();
-
+fn bench<F: FnMut()>(name: &str, iters: usize, mut f: F) {
+    f(); // warmup
     let start = Instant::now();
+    for _ in 0..iters {
+        f();
+    }
+    let elapsed = start.elapsed();
+    let per_iter_us = elapsed.as_secs_f64() * 1_000_000.0 / iters as f64;
+    let per_iter_ms = per_iter_us / 1000.0;
+    if per_iter_ms > 1.0 {
+        println!("  {:<40} {:>8.2} ms  ({} iters)", name, per_iter_ms, iters);
+    } else {
+        println!("  {:<40} {:>8.1} us  ({} iters)", name, per_iter_us, iters);
+    }
+}
+
+fn build_graph(n: usize) -> Graph {
+    let mut graph = Graph::new();
     for i in 0..n {
         let edge = Edge::new(
             format!("Entity_{}", i / 10),
@@ -15,104 +32,168 @@ fn main() {
         .with_confidence(0.5 + (i as f64 % 50.0) / 100.0);
         graph.add_edge(edge);
     }
+    graph
+}
+
+fn main() {
+    let n = 100_000usize;
+    println!("=== larql-core: Graph Engine Benchmark ===\n");
+
+    // ── Insert ──
+    println!("--- Insert ---\n");
+    let start = Instant::now();
+    let graph = build_graph(n);
     let insert_time = start.elapsed();
-
     println!(
-        "Inserted {} unique edges in {:.1}ms",
+        "  {} edges in {:.1}ms ({:.0} ns/edge)",
         graph.edge_count(),
-        insert_time.as_secs_f64() * 1000.0
+        insert_time.as_secs_f64() * 1000.0,
+        insert_time.as_nanos() as f64 / n as f64
     );
 
-    // Query
-    let start = Instant::now();
-    let iterations = 100_000;
-    for i in 0..iterations {
-        let _ = graph.select(&format!("Entity_{}", i % 10_000), None);
+    // ── Query ──
+    println!("\n--- Query ---\n");
+    bench("select(entity, None)", 100_000, || {
+        let _ = graph.select("Entity_42", None);
+    });
+
+    bench("select(entity, Some(rel))", 100_000, || {
+        let _ = graph.select("Entity_42", Some("rel_0"));
+    });
+
+    bench("exists(s, r, o)", 100_000, || {
+        let _ = graph.exists("Entity_42", "rel_0", "Target_420");
+    });
+
+    bench("node(entity)", 100_000, || {
+        let _ = graph.node("Entity_42");
+    });
+
+    bench("describe(entity)", 10_000, || {
+        let _ = graph.describe("Entity_42");
+    });
+
+    bench("count(relation, None)", 100_000, || {
+        let _ = graph.count(Some("rel_0"), None);
+    });
+
+    // ── Search ──
+    println!("\n--- Search ---\n");
+    bench("search(keyword, 10)", 1_000, || {
+        let _ = graph.search("Entity_42", 10);
+    });
+
+    bench("search(keyword, 100)", 1_000, || {
+        let _ = graph.search("Entity", 100);
+    });
+
+    // ── Subgraph ──
+    println!("\n--- Subgraph ---\n");
+    bench("subgraph(depth=1)", 1_000, || {
+        let _ = graph.subgraph("Entity_0", 1);
+    });
+
+    bench("subgraph(depth=2)", 100, || {
+        let _ = graph.subgraph("Entity_0", 2);
+    });
+
+    // ── Algorithms ──
+    println!("\n--- Algorithms ---\n");
+
+    // Build a smaller connected graph for algorithm benchmarks
+    let mut algo_graph = Graph::new();
+    for i in 0..1_000 {
+        algo_graph.add_edge(
+            Edge::new(
+                format!("N{}", i),
+                "connects",
+                format!("N{}", (i + 1) % 1_000),
+            )
+            .with_confidence(0.9),
+        );
+        // Add some cross-links
+        if i % 10 == 0 {
+            algo_graph.add_edge(
+                Edge::new(
+                    format!("N{}", i),
+                    "shortcut",
+                    format!("N{}", (i + 100) % 1_000),
+                )
+                .with_confidence(0.8),
+            );
+        }
     }
-    let query_time = start.elapsed();
-    println!(
-        "{} select() calls in {:.1}ms ({:.0} ns/call)",
-        iterations,
-        query_time.as_secs_f64() * 1000.0,
-        query_time.as_nanos() as f64 / iterations as f64
-    );
 
-    // Search
-    let start = Instant::now();
-    for _ in 0..1000 {
-        let _ = graph.search("Entity 42", 10);
-    }
-    let search_time = start.elapsed();
-    println!(
-        "1000 search() calls in {:.1}ms ({:.1} us/call)",
-        search_time.as_secs_f64() * 1000.0,
-        search_time.as_nanos() as f64 / 1000.0 / 1000.0
-    );
+    bench("shortest_path (1000-node ring)", 100, || {
+        let _ = shortest_path(&algo_graph, "N0", "N500");
+    });
 
-    // Stats (includes node computation + components)
-    let start = Instant::now();
-    let stats = graph.stats();
-    let stats_time = start.elapsed();
-    println!(
-        "stats() in {:.0}ms — {} entities, {} edges, {} components",
-        stats_time.as_secs_f64() * 1000.0,
-        stats.entities,
-        stats.edges,
-        stats.connected_components
-    );
+    bench("pagerank (1000 nodes, 1100 edges)", 10, || {
+        let _ = pagerank(&algo_graph, 0.85, 100, 1e-6);
+    });
 
-    // Subgraph extraction
-    let start = Instant::now();
-    let sub = graph.subgraph("Entity_0", 2);
-    let subgraph_time = start.elapsed();
-    println!(
-        "subgraph(depth=2) in {:.1}ms — {} edges",
-        subgraph_time.as_secs_f64() * 1000.0,
-        sub.edge_count()
-    );
+    bench("bfs_traversal (depth=5)", 100, || {
+        let _ = bfs_traversal(&algo_graph, "N0", 5);
+    });
 
-    // JSON roundtrip
-    let start = Instant::now();
+    bench("dfs (depth=5)", 100, || {
+        let _ = dfs(&algo_graph, "N0", 5);
+    });
+
+    // ── Merge ──
+    println!("\n--- Merge ---\n");
+    // Merge: build fresh each time since Graph doesn't implement Clone
+    bench("merge_graphs (10K into 10K)", 3, || {
+        let mut target = build_graph(10_000);
+        let other = build_graph(10_000);
+        merge_graphs(&mut target, &other);
+    });
+
+    // ── Diff ──
+    println!("\n--- Diff ---\n");
+    let small_a = build_graph(1_000);
+    let small_b = build_graph(1_200); // 200 extra edges
+    bench("diff (1000 vs 1200 edges)", 100, || {
+        let _ = diff(&small_a, &small_b);
+    });
+
+    // ── Serialization ──
+    println!("\n--- Serialization (100K edges) ---\n");
+
+    bench("JSON serialize", 3, || {
+        let _ = to_bytes(&graph, Format::Json).unwrap();
+    });
+
     let json_bytes = to_bytes(&graph, Format::Json).unwrap();
-    let json_ser_time = start.elapsed();
-    println!(
-        "JSON: serialized {} edges to {:.1} MB in {:.0}ms",
-        graph.edge_count(),
-        json_bytes.len() as f64 / 1024.0 / 1024.0,
-        json_ser_time.as_secs_f64() * 1000.0
-    );
+    bench("JSON deserialize", 3, || {
+        let _ = from_bytes(&json_bytes, Format::Json).unwrap();
+    });
 
-    let start = Instant::now();
-    let _ = from_bytes(&json_bytes, Format::Json).unwrap();
-    let json_deser_time = start.elapsed();
-    println!(
-        "JSON: deserialized in {:.0}ms",
-        json_deser_time.as_secs_f64() * 1000.0
-    );
+    bench("MsgPack serialize", 3, || {
+        let _ = to_bytes(&graph, Format::MessagePack).unwrap();
+    });
 
-    // MessagePack roundtrip
-    let start = Instant::now();
     let msgpack_bytes = to_bytes(&graph, Format::MessagePack).unwrap();
-    let msgpack_ser_time = start.elapsed();
-    println!(
-        "MsgPack: serialized {} edges to {:.1} MB in {:.0}ms",
-        graph.edge_count(),
-        msgpack_bytes.len() as f64 / 1024.0 / 1024.0,
-        msgpack_ser_time.as_secs_f64() * 1000.0
-    );
-
-    let start = Instant::now();
-    let _ = from_bytes(&msgpack_bytes, Format::MessagePack).unwrap();
-    let msgpack_deser_time = start.elapsed();
-    println!(
-        "MsgPack: deserialized in {:.0}ms",
-        msgpack_deser_time.as_secs_f64() * 1000.0
-    );
+    bench("MsgPack deserialize", 3, || {
+        let _ = from_bytes(&msgpack_bytes, Format::MessagePack).unwrap();
+    });
 
     println!(
-        "\nSize: JSON {:.1} MB vs MsgPack {:.1} MB ({:.0}% smaller)",
+        "\n  Size: JSON {:.1} MB, MsgPack {:.1} MB ({:.0}% smaller)",
         json_bytes.len() as f64 / 1024.0 / 1024.0,
         msgpack_bytes.len() as f64 / 1024.0 / 1024.0,
         (1.0 - msgpack_bytes.len() as f64 / json_bytes.len() as f64) * 100.0
+    );
+
+    // ── Stats ──
+    println!("\n--- Stats ---\n");
+    bench("stats() (100K edges)", 10, || {
+        let _ = graph.stats();
+    });
+
+    println!(
+        "\n  Graph: {} edges, {} entities",
+        graph.edge_count(),
+        graph.node_count()
     );
 }

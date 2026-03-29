@@ -76,6 +76,41 @@ larql attention-extract google/gemma-3-4b-it -o attention.larql.json
 larql attention-extract google/gemma-3-4b-it --layer 12 -o attention-L12.larql.json
 ```
 
+### `larql predict`
+
+Run a full transformer forward pass from extracted safetensors weights and return top-k next-token predictions. Pure Rust inference — no MLX, no PyTorch.
+
+```
+larql predict <MODEL> --prompt <PROMPT> [OPTIONS]
+```
+
+| Argument/Flag | Description |
+|---|---|
+| `<MODEL>` | Model path or HuggingFace model ID |
+| `-p, --prompt <PROMPT>` | Prompt text to predict the next token for |
+| `-k, --top-k <TOP_K>` | Number of top predictions to show [default: 10] |
+
+**How it works:** Loads all safetensors weights, tokenizes the prompt (with BOS token), runs the full forward pass through all layers (embedding, attention with RoPE, GQA, QK norm, FFN with SiLU gating, all layer norms), projects the final residual against the embedding matrix, and returns softmax probabilities.
+
+**Architecture awareness:** Uses the `ModelArchitecture` trait to handle model-specific behavior. Gemma 3 gets +1 norm offset, sqrt(hidden) embedding scale, QK normalization, and 4 norms per layer. Llama/generic gets standard behavior.
+
+**Performance:** ~800ms per query for Gemma 3 4B on Apple Silicon (BLAS-accelerated, 34 layers, 6 tokens).
+
+**Examples:**
+
+```bash
+# Basic prediction
+larql predict google/gemma-3-4b-it --prompt "The capital of France is" -k 5
+# 1. Paris (99.67%)
+
+# Factual queries
+larql predict google/gemma-3-4b-it --prompt "The largest planet is" -k 3
+# 1. Jupiter (99.86%)
+
+# Works with any HuggingFace model in cache
+larql predict google/gemma-3-4b-it -p "Water freezes at" -k 10
+```
+
 ### `larql vector-extract`
 
 Extract full weight vectors to intermediate NDJSON files for SurrealDB ingestion.

@@ -1,12 +1,7 @@
-#[cfg(feature = "walker")]
-extern crate blas_src;
-
 pub mod algo;
 pub mod core;
 pub mod engine;
 pub mod io;
-pub mod loader;
-pub mod walker;
 
 // Re-export the essential types at crate root.
 pub use core::edge::Edge;
@@ -22,18 +17,11 @@ pub use engine::templates::TemplateRegistry;
 pub use io::checkpoint::CheckpointLog;
 pub use io::format::Format;
 pub use io::json::{load_json, save_json};
-pub use io::{load, save, load_with_format, save_with_format, to_bytes, from_bytes};
+pub use io::{from_bytes, load, load_with_format, save, save_with_format, to_bytes};
 
-pub use algo::merge::merge_graphs;
-pub use algo::shortest_path::shortest_path;
-
-#[cfg(feature = "walker")]
-pub use walker::weight_walker::{
-    walk_model, resolve_model_path, WeightWalker, WalkConfig, WalkCallbacks, LayerResult, LayerStats,
-};
-#[cfg(feature = "walker")]
-pub use walker::attention_walker::{AttentionWalker, AttentionLayerResult};
-#[cfg(feature = "walker")]
-pub use walker::vector_extractor::{VectorExtractor, ExtractConfig, ExtractCallbacks, ExtractSummary};
-#[cfg(feature = "walker")]
-pub use walker::residuals::{ResidualCapturer, ResidualConfig, ResidualCallbacks};
+pub use algo::diff::{diff, ChangedEdge, GraphDiff};
+pub use algo::merge::{merge_graphs, merge_graphs_with_strategy};
+pub use algo::pagerank::{pagerank, PageRankResult};
+pub use algo::shortest_path::{astar, shortest_path, shortest_path_with_weight, PathResult};
+pub use algo::traversal::{bfs as bfs_traversal, dfs, TraversalResult};
+pub use io::csv::{load_csv, save_csv};

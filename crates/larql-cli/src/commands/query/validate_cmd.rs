@@ -15,13 +15,11 @@ pub fn run(args: ValidateArgs) -> Result<(), Box<dyn std::error::Error>> {
     let mut warnings = Vec::new();
 
     // Check for zero-confidence edges
-    let zero_conf = graph
-        .edges()
-        .iter()
-        .filter(|e| e.confidence <= 0.0)
-        .count();
+    let zero_conf = graph.edges().iter().filter(|e| e.confidence <= 0.0).count();
     if zero_conf > 0 {
-        warnings.push(format!("{zero_conf} edges with zero or negative confidence"));
+        warnings.push(format!(
+            "{zero_conf} edges with zero or negative confidence"
+        ));
     }
 
     // Check for self-loops

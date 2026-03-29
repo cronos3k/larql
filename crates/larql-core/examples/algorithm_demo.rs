@@ -29,7 +29,11 @@ fn main() {
     for (s, r, o, c) in &facts {
         graph.add_edge(Edge::new(*s, *r, *o).with_confidence(*c));
     }
-    println!("Graph: {} edges, {} nodes\n", graph.edge_count(), graph.node_count());
+    println!(
+        "Graph: {} edges, {} nodes\n",
+        graph.edge_count(),
+        graph.node_count()
+    );
 
     // ── Shortest Path ──
     println!("--- Shortest Path (weight = 1 - confidence) ---");
@@ -58,7 +62,11 @@ fn main() {
     println!("\n--- Subgraph Extraction ---");
     for depth in 0..=3 {
         let sub = graph.subgraph("France", depth);
-        println!("  France depth={depth}: {} edges, {} nodes", sub.edge_count(), sub.node_count());
+        println!(
+            "  France depth={depth}: {} edges, {} nodes",
+            sub.edge_count(),
+            sub.node_count()
+        );
     }
 
     // ── Connected Components ──
@@ -77,11 +85,18 @@ fn main() {
     println!("  Before: {} edges", graph.edge_count());
     let added = merge_graphs(&mut graph, &science);
     println!("  Merged: {added} new edges");
-    println!("  After:  {} edges, {} nodes", graph.edge_count(), graph.node_count());
+    println!(
+        "  After:  {} edges, {} nodes",
+        graph.edge_count(),
+        graph.node_count()
+    );
 
     // Now Einstein is connected to the main graph via Germany
     let new_stats = graph.stats();
-    println!("  Components: {} (was {})", new_stats.connected_components, stats.connected_components);
+    println!(
+        "  Components: {} (was {})",
+        new_stats.connected_components, stats.connected_components
+    );
 
     // Einstein → Europe path should work now
     if let Some((cost, path)) = shortest_path(&graph, "Einstein", "Europe") {

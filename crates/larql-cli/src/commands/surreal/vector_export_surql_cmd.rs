@@ -3,9 +3,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use clap::Args;
-use larql_core::loader::vector_loader::{
-    self, discover_vector_files, VectorReader,
-};
+use larql_surreal::loader::{self, discover_vector_files, VectorReader};
 
 #[derive(Args)]
 pub struct VectorExportSurqlArgs {
@@ -55,7 +53,11 @@ pub fn run(args: VectorExportSurqlArgs) -> Result<(), Box<dyn std::error::Error>
     eprintln!("Exporting to SurQL files:");
     eprintln!(
         "  tables: {}",
-        files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ")
+        files
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     );
 
     let overall_start = Instant::now();
@@ -74,11 +76,11 @@ pub fn run(args: VectorExportSurqlArgs) -> Result<(), Box<dyn std::error::Error>
         writeln!(writer, "USE NS {}; USE DB {};", args.ns, args.db)?;
         writeln!(writer)?;
 
-        let schema = vector_loader::schema_sql(component, dimension)?;
+        let schema = loader::schema_sql(component, dimension)?;
         writer.write_all(schema.as_bytes())?;
         writeln!(writer)?;
 
-        let progress_schema = vector_loader::progress_table_sql();
+        let progress_schema = loader::progress_table_sql();
         writer.write_all(progress_schema.as_bytes())?;
         writeln!(writer)?;
 
@@ -97,14 +99,14 @@ pub fn run(args: VectorExportSurqlArgs) -> Result<(), Box<dyn std::error::Error>
             // Layer transition — write progress marker
             if current_layer.is_some() && current_layer != Some(record.layer) {
                 if let Some(prev) = current_layer {
-                    let sql = vector_loader::mark_layer_done_sql(component, prev, layer_count);
+                    let sql = loader::mark_layer_done_sql(component, prev, layer_count);
                     writeln!(writer, "{sql}")?;
                     layer_count = 0;
                 }
             }
             current_layer = Some(record.layer);
 
-            let sql = vector_loader::single_insert_sql(component, &record);
+            let sql = loader::single_insert_sql(component, &record);
             writeln!(writer, "{sql}")?;
             count += 1;
             layer_count += 1;
@@ -117,7 +119,7 @@ pub fn run(args: VectorExportSurqlArgs) -> Result<(), Box<dyn std::error::Error>
         // Final layer progress
         if let Some(last_layer) = current_layer {
             if layer_count > 0 {
-                let sql = vector_loader::mark_layer_done_sql(component, last_layer, layer_count);
+                let sql = loader::mark_layer_done_sql(component, last_layer, layer_count);
                 writeln!(writer, "{sql}")?;
             }
         }

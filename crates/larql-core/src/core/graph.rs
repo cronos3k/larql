@@ -71,10 +71,11 @@ impl Graph {
             .or_default()
             .push((edge.relation.clone(), edge.object.clone(), idx));
 
-        self.reverse
-            .entry(edge.object.clone())
-            .or_default()
-            .push((edge.relation.clone(), edge.subject.clone(), idx));
+        self.reverse.entry(edge.object.clone()).or_default().push((
+            edge.relation.clone(),
+            edge.subject.clone(),
+            idx,
+        ));
 
         self.index_keywords(&edge, idx);
         self.edges.push(edge);
@@ -285,11 +286,7 @@ impl Graph {
     }
 
     /// Count edges, optionally filtered by relation and/or source.
-    pub fn count(
-        &self,
-        relation: Option<&str>,
-        source: Option<&SourceType>,
-    ) -> usize {
+    pub fn count(&self, relation: Option<&str>, source: Option<&SourceType>) -> usize {
         self.edges
             .iter()
             .filter(|e| relation.is_none_or(|r| e.relation == r))
@@ -362,7 +359,10 @@ impl Graph {
 
     /// Deserialize from .larql.json format.
     pub fn from_json_value(v: &serde_json::Value) -> Result<Self, GraphError> {
-        let schema = v.get("schema").map(Schema::from_json_value).unwrap_or_default();
+        let schema = v
+            .get("schema")
+            .map(Schema::from_json_value)
+            .unwrap_or_default();
 
         let metadata: HashMap<String, serde_json::Value> = v
             .get("metadata")
@@ -461,12 +461,8 @@ impl Graph {
 
         let mut adj: HashMap<&str, HashSet<&str>> = HashMap::new();
         for edge in &self.edges {
-            adj.entry(&edge.subject)
-                .or_default()
-                .insert(&edge.object);
-            adj.entry(&edge.object)
-                .or_default()
-                .insert(&edge.subject);
+            adj.entry(&edge.subject).or_default().insert(&edge.object);
+            adj.entry(&edge.object).or_default().insert(&edge.subject);
         }
 
         for entity in adj.keys() {

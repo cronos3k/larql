@@ -22,7 +22,6 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     // ── Extraction ──
-
     /// Extract edges from FFN weights. Zero forward passes.
     WeightExtract(weight_walk_cmd::WeightWalkArgs),
 
@@ -35,11 +34,13 @@ enum Commands {
     /// Capture residual stream vectors for entities via forward passes.
     Residuals(residuals_cmd::ResidualsArgs),
 
+    /// Run full forward pass and predict next token.
+    Predict(predict_cmd::PredictArgs),
+
     /// BFS extraction from a model endpoint.
     Bfs(bfs_cmd::BfsArgs),
 
     // ── SurrealDB ──
-
     /// Load vectors into SurrealDB with HNSW indexes (small tables, HTTP).
     VectorLoad(vector_load_cmd::VectorLoadArgs),
 
@@ -50,7 +51,6 @@ enum Commands {
     VectorExportSurql(vector_export_surql_cmd::VectorExportSurqlArgs),
 
     // ── Query ──
-
     /// Query a graph for facts.
     Query(query_cmd::QueryArgs),
 
@@ -62,6 +62,9 @@ enum Commands {
 
     /// Validate a graph file.
     Validate(validate_cmd::ValidateArgs),
+
+    /// Merge multiple graph files.
+    Merge(merge_cmd::MergeArgs),
 }
 
 fn main() {
@@ -73,6 +76,7 @@ fn main() {
         Commands::AttentionExtract(args) => attention_walk_cmd::run(args),
         Commands::VectorExtract(args) => vector_extract_cmd::run(args),
         Commands::Residuals(args) => residuals_cmd::run(args),
+        Commands::Predict(args) => predict_cmd::run(args),
         Commands::Bfs(args) => bfs_cmd::run(args),
         // SurrealDB
         Commands::VectorLoad(args) => vector_load_cmd::run(args),
@@ -83,6 +87,7 @@ fn main() {
         Commands::Describe(args) => describe_cmd::run(args),
         Commands::Stats(args) => stats_cmd::run(args),
         Commands::Validate(args) => validate_cmd::run(args),
+        Commands::Merge(args) => merge_cmd::run(args),
     };
 
     if let Err(e) = result {

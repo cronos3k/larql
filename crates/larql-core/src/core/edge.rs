@@ -134,13 +134,10 @@ impl From<CompactEdge> for Edge {
             relation: c.r,
             object: c.o,
             confidence: c.c,
-            source: c
-                .src
-                .as_deref()
-                .map_or(SourceType::Unknown, |s| {
-                    serde_json::from_value(serde_json::Value::String(s.to_string()))
-                        .unwrap_or(SourceType::Unknown)
-                }),
+            source: c.src.as_deref().map_or(SourceType::Unknown, |s| {
+                serde_json::from_value(serde_json::Value::String(s.to_string()))
+                    .unwrap_or(SourceType::Unknown)
+            }),
             metadata: c.meta,
             injection: c.inj,
         }

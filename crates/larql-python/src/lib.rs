@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use larql_core as lq;
+use larql_inference as li;
 
 // ── Helpers ──
 
@@ -53,10 +54,7 @@ impl PyEdge {
             for (k, v) in meta.iter() {
                 let key: String = k.extract()?;
                 let val_str: String = v.str()?.to_string();
-                edge = edge.with_metadata(
-                    &key,
-                    serde_json::Value::String(val_str),
-                );
+                edge = edge.with_metadata(&key, serde_json::Value::String(val_str));
             }
         }
 
@@ -158,10 +156,9 @@ impl PyEdge {
         if let Some(meta_obj) = d.get_item("meta")? {
             let json_mod = d.py().import("json")?;
             let meta_str: String = json_mod.call_method1("dumps", (meta_obj,))?.extract()?;
-            if let Ok(meta_map) =
-                serde_json::from_str::<std::collections::HashMap<String, serde_json::Value>>(
-                    &meta_str,
-                )
+            if let Ok(meta_map) = serde_json::from_str::<
+                std::collections::HashMap<String, serde_json::Value>,
+            >(&meta_str)
             {
                 edge.metadata = Some(meta_map);
             }
@@ -345,11 +342,7 @@ impl PyGraph {
     }
 
     /// Matches Python: returns (None, path) on failure instead of None
-    fn walk(
-        &self,
-        subject: &str,
-        relations: Vec<String>,
-    ) -> (Option<String>, Vec<PyEdge>) {
+    fn walk(&self, subject: &str, relations: Vec<String>) -> (Option<String>, Vec<PyEdge>) {
         let refs: Vec<&str> = relations.iter().map(|s| s.as_str()).collect();
         match self.inner.walk(subject, &refs) {
             Some((dest, path)) => (
@@ -503,15 +496,13 @@ impl PyGraph {
 
 #[pyfunction]
 fn load(path: &str) -> PyResult<PyGraph> {
-    let graph =
-        lq::load(path).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+    let graph = lq::load(path).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
     Ok(PyGraph { inner: graph })
 }
 
 #[pyfunction]
 fn save(graph: &PyGraph, path: &str) -> PyResult<()> {
-    lq::save(&graph.inner, path)
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
+    lq::save(&graph.inner, path).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
 }
 
 #[pyfunction]
@@ -527,6 +518,103 @@ fn shortest_path(graph: &PyGraph, from: &str, to: &str) -> Option<(f64, Vec<PyEd
 #[pyfunction]
 fn merge_graphs(target: &mut PyGraph, other: &PyGraph) -> usize {
     lq::merge_graphs(&mut target.inner, &other.inner)
+}
+
+#[pyfunction]
+#[pyo3(signature = (target, other, strategy="union"))]
+fn merge_graphs_with_strategy(target: &mut PyGraph, other: &PyGraph, strategy: &str) -> usize {
+    let s = match strategy {
+        "max_confidence" => lq::MergeStrategy::MaxConfidence,
+        "source_priority" => lq::MergeStrategy::SourcePriority,
+        _ => lq::MergeStrategy::Union,
+    };
+    lq::merge_graphs_with_strategy(&mut target.inner, &other.inner, s)
+}
+
+#[pyfunction]
+fn diff<'py>(py: Python<'py>, old: &PyGraph, new: &PyGraph) -> PyResult<Bound<'py, PyDict>> {
+    let result = lq::diff(&old.inner, &new.inner);
+    let dict = PyDict::new(py);
+    dict.set_item(
+        "added",
+        result
+            .added
+            .into_iter()
+            .map(|e| PyEdge { inner: e })
+            .collect::<Vec<_>>(),
+    )?;
+    dict.set_item(
+        "removed",
+        result
+            .removed
+            .into_iter()
+            .map(|e| PyEdge { inner: e })
+            .collect::<Vec<_>>(),
+    )?;
+    dict.set_item("changed", result.changed.len())?;
+    Ok(dict)
+}
+
+#[pyfunction]
+#[pyo3(signature = (graph, damping=0.85, max_iterations=100, tolerance=1e-6))]
+fn pagerank<'py>(
+    py: Python<'py>,
+    graph: &PyGraph,
+    damping: f64,
+    max_iterations: usize,
+    tolerance: f64,
+) -> PyResult<Bound<'py, PyDict>> {
+    let result = lq::pagerank(&graph.inner, damping, max_iterations, tolerance);
+    let dict = PyDict::new(py);
+    let ranks = PyDict::new(py);
+    for (k, v) in &result.ranks {
+        ranks.set_item(k, v)?;
+    }
+    dict.set_item("ranks", ranks)?;
+    dict.set_item("iterations", result.iterations)?;
+    dict.set_item("converged", result.converged)?;
+    Ok(dict)
+}
+
+#[pyfunction]
+#[pyo3(signature = (graph, source, max_depth=10))]
+fn bfs_traversal(graph: &PyGraph, source: &str, max_depth: usize) -> (Vec<String>, Vec<PyEdge>) {
+    let result = lq::bfs_traversal(&graph.inner, source, max_depth);
+    (
+        result.nodes,
+        result
+            .edges
+            .into_iter()
+            .map(|e| PyEdge { inner: e })
+            .collect(),
+    )
+}
+
+#[pyfunction]
+#[pyo3(signature = (graph, source, max_depth=10))]
+fn dfs_traversal(graph: &PyGraph, source: &str, max_depth: usize) -> (Vec<String>, Vec<PyEdge>) {
+    let result = lq::dfs(&graph.inner, source, max_depth);
+    (
+        result.nodes,
+        result
+            .edges
+            .into_iter()
+            .map(|e| PyEdge { inner: e })
+            .collect(),
+    )
+}
+
+#[pyfunction]
+fn load_csv(path: &str) -> PyResult<PyGraph> {
+    let graph =
+        lq::load_csv(path).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+    Ok(PyGraph { inner: graph })
+}
+
+#[pyfunction]
+fn save_csv(graph: &PyGraph, path: &str) -> PyResult<()> {
+    lq::save_csv(&graph.inner, path)
+        .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))
 }
 
 /// Walk FFN weights from a model directory. Returns a Graph of extracted edges.
@@ -546,7 +634,7 @@ fn weight_walk(
     top_k: usize,
     min_score: f32,
 ) -> PyResult<PyGraph> {
-    let config = lq::WalkConfig { top_k, min_score };
+    let config = li::WalkConfig { top_k, min_score };
     let layers: Option<Vec<usize>> = layer.map(|l| vec![l]);
 
     let mut graph = lq::Graph::new();
@@ -559,9 +647,9 @@ fn weight_walk(
         serde_json::Value::String("weight-walk".to_string()),
     );
 
-    let mut callbacks = lq::walker::weight_walker::SilentWalkCallbacks;
+    let mut callbacks = li::walker::weight_walker::SilentWalkCallbacks;
 
-    lq::walk_model(
+    li::walk_model(
         model_path,
         layers.as_deref(),
         &config,
@@ -571,8 +659,7 @@ fn weight_walk(
     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
     if let Some(path) = output_path {
-        lq::save(&graph, path)
-            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        lq::save(&graph, path).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
     }
 
     Ok(PyGraph { inner: graph })
@@ -588,10 +675,10 @@ fn attention_walk(
     top_k: usize,
     min_score: f32,
 ) -> PyResult<PyGraph> {
-    let walker = lq::AttentionWalker::load(model_path)
+    let walker = li::AttentionWalker::load(model_path)
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-    let config = lq::WalkConfig { top_k, min_score };
+    let config = li::WalkConfig { top_k, min_score };
 
     let mut graph = lq::Graph::new();
     graph.metadata.insert(
@@ -608,7 +695,7 @@ fn attention_walk(
         None => (0..walker.num_layers()).collect(),
     };
 
-    let mut callbacks = lq::walker::weight_walker::SilentWalkCallbacks;
+    let mut callbacks = li::walker::weight_walker::SilentWalkCallbacks;
     for &l in &layers {
         walker
             .walk_layer(l, &config, &mut graph, &mut callbacks)
@@ -616,8 +703,7 @@ fn attention_walk(
     }
 
     if let Some(path) = output_path {
-        lq::save(&graph, path)
-            .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
+        lq::save(&graph, path).map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
     }
 
     Ok(PyGraph { inner: graph })
@@ -634,6 +720,13 @@ fn _larql_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(save, m)?)?;
     m.add_function(wrap_pyfunction!(shortest_path, m)?)?;
     m.add_function(wrap_pyfunction!(merge_graphs, m)?)?;
+    m.add_function(wrap_pyfunction!(merge_graphs_with_strategy, m)?)?;
+    m.add_function(wrap_pyfunction!(diff, m)?)?;
+    m.add_function(wrap_pyfunction!(pagerank, m)?)?;
+    m.add_function(wrap_pyfunction!(bfs_traversal, m)?)?;
+    m.add_function(wrap_pyfunction!(dfs_traversal, m)?)?;
+    m.add_function(wrap_pyfunction!(load_csv, m)?)?;
+    m.add_function(wrap_pyfunction!(save_csv, m)?)?;
     m.add_function(wrap_pyfunction!(weight_walk, m)?)?;
     m.add_function(wrap_pyfunction!(attention_walk, m)?)?;
     Ok(())

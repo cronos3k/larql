@@ -79,7 +79,9 @@ impl BfsCallbacks for ProgressCallbacks {
 }
 
 #[allow(clippy::type_complexity)]
-fn load_mock_knowledge(path: &PathBuf) -> Result<Vec<(String, String, f64)>, Box<dyn std::error::Error>> {
+fn load_mock_knowledge(
+    path: &PathBuf,
+) -> Result<Vec<(String, String, f64)>, Box<dyn std::error::Error>> {
     let contents = std::fs::read_to_string(path)?;
     let value: serde_json::Value = serde_json::from_str(&contents)?;
     let mut entries = Vec::new();
@@ -96,8 +98,12 @@ fn load_mock_knowledge(path: &PathBuf) -> Result<Vec<(String, String, f64)>, Box
 
 pub fn run(args: BfsArgs) -> Result<(), Box<dyn std::error::Error>> {
     // Load templates from file
-    let tmpl_contents = std::fs::read_to_string(&args.templates)
-        .map_err(|e| format!("Failed to read templates file '{}': {e}", args.templates.display()))?;
+    let tmpl_contents = std::fs::read_to_string(&args.templates).map_err(|e| {
+        format!(
+            "Failed to read templates file '{}': {e}",
+            args.templates.display()
+        )
+    })?;
     let tmpl_value: serde_json::Value = serde_json::from_str(&tmpl_contents)
         .map_err(|e| format!("Failed to parse templates JSON: {e}"))?;
     let templates = TemplateRegistry::from_json_value(&tmpl_value);
@@ -154,15 +160,11 @@ pub fn run(args: BfsArgs) -> Result<(), Box<dyn std::error::Error>> {
             .unwrap(),
     );
 
-    let checkpoint = args
-        .resume
-        .as_ref()
-        .or(Some(&args.output))
-        .and_then(|p| {
-            let mut cp_path = p.clone();
-            cp_path.set_extension("checkpoint");
-            CheckpointLog::open(cp_path).ok()
-        });
+    let checkpoint = args.resume.as_ref().or(Some(&args.output)).and_then(|p| {
+        let mut cp_path = p.clone();
+        cp_path.set_extension("checkpoint");
+        CheckpointLog::open(cp_path).ok()
+    });
 
     let mut callbacks = ProgressCallbacks {
         bar,

@@ -12,8 +12,14 @@ fn main() {
         .with_confidence(0.89)
         .with_source(SourceType::Parametric);
 
-    println!("Edge: {} --{}--> {} (c={:.2}, src={})",
-        e1.subject, e1.relation, e1.object, e1.confidence, e1.source.as_str());
+    println!(
+        "Edge: {} --{}--> {} (c={:.2}, src={})",
+        e1.subject,
+        e1.relation,
+        e1.object,
+        e1.confidence,
+        e1.source.as_str()
+    );
     println!("  Triple: {:?}", e1.triple());
 
     // ── Edge with metadata (like weight-walk produces) ──
@@ -45,8 +51,10 @@ fn main() {
     // Roundtrip
     let parsed: core::edge::CompactEdge = serde_json::from_str(&json).unwrap();
     let restored = Edge::from(parsed);
-    println!("  Roundtrip: {} --{}--> {} (c={:.2})",
-        restored.subject, restored.relation, restored.object, restored.confidence);
+    println!(
+        "  Roundtrip: {} --{}--> {} (c={:.2})",
+        restored.subject, restored.relation, restored.object, restored.confidence
+    );
 
     // ── Confidence clamping ──
     let clamped = Edge::new("A", "r", "B").with_confidence(1.5);
@@ -55,8 +63,12 @@ fn main() {
     // ── Source types ──
     println!("\nSource types:");
     for src in &[
-        SourceType::Parametric, SourceType::Document, SourceType::Installed,
-        SourceType::Wikidata, SourceType::Manual, SourceType::Unknown,
+        SourceType::Parametric,
+        SourceType::Document,
+        SourceType::Installed,
+        SourceType::Wikidata,
+        SourceType::Manual,
+        SourceType::Unknown,
     ] {
         println!("  {:?} → \"{}\"", src, src.as_str());
     }

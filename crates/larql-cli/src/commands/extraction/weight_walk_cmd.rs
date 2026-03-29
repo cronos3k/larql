@@ -5,8 +5,10 @@ use std::time::Instant;
 use crate::utils::round4;
 use clap::Args;
 use indicatif::{ProgressBar, ProgressStyle};
-use larql_core::walker::weight_walker::{LayerResult, WalkCallbacks, WalkConfig, WeightWalker};
 use larql_core::*;
+use larql_inference::walker::weight_walker::{
+    LayerResult, WalkCallbacks, WalkConfig, WeightWalker,
+};
 
 #[derive(Args)]
 pub struct WeightWalkArgs {
@@ -59,7 +61,8 @@ impl WalkCallbacks for ProgressCallbacks {
     }
 
     fn on_layer_done(&mut self, result: &LayerResult) {
-        self.feature_bar.set_position(result.features_scanned as u64);
+        self.feature_bar
+            .set_position(result.features_scanned as u64);
         self.bar.inc(1);
         let s = &result.stats;
         eprintln!(
@@ -191,7 +194,9 @@ pub fn run(args: WeightWalkArgs) -> Result<(), Box<dyn std::error::Error>> {
         graph = filtered;
         eprintln!(
             "\n  Filtered: removed {} edges below c={:.2}, kept {}",
-            removed, args.min_confidence, graph.edge_count()
+            removed,
+            args.min_confidence,
+            graph.edge_count()
         );
     }
 

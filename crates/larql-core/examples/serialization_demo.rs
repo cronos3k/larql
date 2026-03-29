@@ -20,16 +20,31 @@ fn main() {
             .with_source(SourceType::Parametric),
         );
     }
-    println!("Graph: {} edges, {} nodes\n", graph.edge_count(), graph.node_count());
+    println!(
+        "Graph: {} edges, {} nodes\n",
+        graph.edge_count(),
+        graph.node_count()
+    );
 
     // ── JSON ──
     let json_bytes = to_bytes(&graph, Format::Json).unwrap();
-    println!("JSON:     {} bytes ({:.1} KB)", json_bytes.len(), json_bytes.len() as f64 / 1024.0);
+    println!(
+        "JSON:     {} bytes ({:.1} KB)",
+        json_bytes.len(),
+        json_bytes.len() as f64 / 1024.0
+    );
 
     // ── MessagePack ──
     let msgpack_bytes = to_bytes(&graph, Format::MessagePack).unwrap();
-    println!("MsgPack:  {} bytes ({:.1} KB)", msgpack_bytes.len(), msgpack_bytes.len() as f64 / 1024.0);
-    println!("Savings:  {:.0}% smaller\n", (1.0 - msgpack_bytes.len() as f64 / json_bytes.len() as f64) * 100.0);
+    println!(
+        "MsgPack:  {} bytes ({:.1} KB)",
+        msgpack_bytes.len(),
+        msgpack_bytes.len() as f64 / 1024.0
+    );
+    println!(
+        "Savings:  {:.0}% smaller\n",
+        (1.0 - msgpack_bytes.len() as f64 / json_bytes.len() as f64) * 100.0
+    );
 
     // ── Roundtrip bytes ──
     let from_json = from_bytes(&json_bytes, Format::Json).unwrap();
@@ -39,7 +54,13 @@ fn main() {
 
     // ── File format detection ──
     println!("\nFormat detection:");
-    for path in &["graph.larql.json", "graph.json", "graph.larql.bin", "graph.bin", "graph.msgpack"] {
+    for path in &[
+        "graph.larql.json",
+        "graph.json",
+        "graph.larql.bin",
+        "graph.bin",
+        "graph.msgpack",
+    ] {
         let fmt = Format::from_path(path);
         println!("  {path:25} → {fmt:?}");
     }
@@ -69,10 +90,18 @@ fn main() {
 
     // ── Cross-format ──
     let cross = from_bytes(
-        &to_bytes(&from_bytes(&json_bytes, Format::Json).unwrap(), Format::MessagePack).unwrap(),
+        &to_bytes(
+            &from_bytes(&json_bytes, Format::Json).unwrap(),
+            Format::MessagePack,
+        )
+        .unwrap(),
         Format::MessagePack,
-    ).unwrap();
-    println!("\nCross-format (JSON → MsgPack → Graph): {} edges", cross.edge_count());
+    )
+    .unwrap();
+    println!(
+        "\nCross-format (JSON → MsgPack → Graph): {} edges",
+        cross.edge_count()
+    );
 
     println!("\n=== Done ===");
 }

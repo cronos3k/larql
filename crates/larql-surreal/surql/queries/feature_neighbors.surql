@@ -1,0 +1,10 @@
+-- Find features similar to a known feature
+-- Usage: first get the vector for a known feature, then find neighbors
+--
+-- LET $ref = (SELECT vector FROM ffn_gate:L26_F9298);
+-- SELECT id, layer, feature, top_token, c_score,
+--        vector::similarity::cosine(vector, $ref.vector) AS similarity
+-- FROM ffn_gate
+-- WHERE id != ffn_gate:L26_F9298
+-- ORDER BY similarity DESC
+-- LIMIT 20;

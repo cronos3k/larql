@@ -1,11 +1,13 @@
-use larql_core::*;
 use larql_core::engine::mock_provider::MockProvider;
+use larql_core::*;
 
 #[test]
 fn test_chain_single_token() {
-    let provider = MockProvider::with_knowledge(vec![
-        ("The capital of France is".into(), "Paris".into(), 0.89),
-    ]);
+    let provider = MockProvider::with_knowledge(vec![(
+        "The capital of France is".into(),
+        "Paris".into(),
+        0.89,
+    )]);
 
     let result = chain_tokens(&provider, "The capital of France is", 1, 0.3, None).unwrap();
     assert_eq!(result.answer, "Paris");
@@ -15,9 +17,7 @@ fn test_chain_single_token() {
 
 #[test]
 fn test_chain_stops_on_low_confidence() {
-    let provider = MockProvider::with_knowledge(vec![
-        ("prompt".into(), "answer".into(), 0.1),
-    ]);
+    let provider = MockProvider::with_knowledge(vec![("prompt".into(), "answer".into(), 0.1)]);
 
     let result = chain_tokens(&provider, "prompt", 5, 0.5, None).unwrap();
     assert!(result.answer.is_empty());

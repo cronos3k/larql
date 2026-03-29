@@ -2,12 +2,12 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use crate::utils::base64_encode;
 use clap::Args;
 use indicatif::{ProgressBar, ProgressStyle};
-use larql_core::loader::vector_loader::{
-    self, discover_vector_files, LoadCallbacks, LoaderError, TableSummary, VectorReader,
+use larql_surreal::loader::{
+    self, discover_vector_files, LoadCallbacks, TableSummary, VectorReader,
 };
+use larql_surreal::{SurrealClient, SurrealError};
 
 #[derive(Args)]
 pub struct VectorLoadArgs {
@@ -55,113 +55,25 @@ pub struct VectorLoadArgs {
     schema_only: bool,
 }
 
-/// HTTP client wrapper for SurrealDB's /sql endpoint.
-struct SurrealClient {
-    client: reqwest::blocking::Client,
-    url: String,
-    ns: String,
-    db: String,
-}
+/// Query completed layers from load_progress table.
+fn completed_layers(client: &SurrealClient, table: &str) -> Result<HashSet<usize>, SurrealError> {
+    let sql = loader::completed_layers_sql(table);
+    let resp = client.query(&sql)?;
 
-impl SurrealClient {
-    fn new(url: &str, ns: &str, db: &str, user: &str, pass: &str) -> Self {
-        // Strip trailing slash
-        let url = url.trim_end_matches('/').to_string();
-
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(300))
-            .default_headers({
-                let mut headers = reqwest::header::HeaderMap::new();
-                let auth =
-                    base64_encode(&format!("{user}:{pass}"));
-                headers.insert(
-                    reqwest::header::AUTHORIZATION,
-                    format!("Basic {auth}").parse().unwrap(),
-                );
-                headers
-            })
-            .build()
-            .expect("failed to build HTTP client");
-
-        Self {
-            client,
-            url,
-            ns: ns.to_string(),
-            db: db.to_string(),
-        }
-    }
-
-    /// Execute a SurQL query and return the raw JSON response.
-    fn query(&self, sql: &str) -> Result<serde_json::Value, LoaderError> {
-        let resp = self
-            .client
-            .post(format!("{}/sql", self.url))
-            .header("surreal-ns", &self.ns)
-            .header("surreal-db", &self.db)
-            .header("Accept", "application/json")
-            .body(sql.to_string())
-            .send()
-            .map_err(|e| LoaderError::Surreal(format!("HTTP error: {e}")))?;
-
-        let status = resp.status();
-        let body = resp
-            .text()
-            .map_err(|e| LoaderError::Surreal(format!("read error: {e}")))?;
-
-        if !status.is_success() {
-            return Err(LoaderError::Surreal(format!(
-                "HTTP {status}: {body}"
-            )));
-        }
-
-        let json: serde_json::Value = serde_json::from_str(&body)
-            .map_err(|e| LoaderError::Surreal(format!("JSON parse error: {e}: {body}")))?;
-
-        Ok(json)
-    }
-
-    /// Execute SQL, check for errors in the response array.
-    fn exec(&self, sql: &str) -> Result<(), LoaderError> {
-        let resp = self.query(sql)?;
-
-        // SurrealDB returns an array of results. Check each for errors.
-        if let Some(arr) = resp.as_array() {
-            for result in arr {
-                if let Some(status) = result.get("status").and_then(|s| s.as_str()) {
-                    if status == "ERR" {
-                        let detail = result
-                            .get("result")
-                            .and_then(|r| r.as_str())
-                            .unwrap_or("unknown error");
-                        return Err(LoaderError::Surreal(detail.to_string()));
+    let mut layers = HashSet::new();
+    if let Some(arr) = resp.as_array() {
+        for result in arr {
+            if let Some(rows) = result.get("result").and_then(|r| r.as_array()) {
+                for row in rows {
+                    if let Some(layer) = row.get("layer").and_then(|l| l.as_u64()) {
+                        layers.insert(layer as usize);
                     }
                 }
             }
         }
-
-        Ok(())
     }
 
-    /// Query completed layers from load_progress table.
-    fn completed_layers(&self, table: &str) -> Result<HashSet<usize>, LoaderError> {
-        let sql = vector_loader::completed_layers_sql(table);
-        let resp = self.query(&sql)?;
-
-        let mut layers = HashSet::new();
-        if let Some(arr) = resp.as_array() {
-            for result in arr {
-                if let Some(rows) = result.get("result").and_then(|r| r.as_array()) {
-                    for row in rows {
-                        if let Some(layer) = row.get("layer").and_then(|l| l.as_u64()) {
-                            layers.insert(layer as usize);
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(layers)
-    }
+    Ok(layers)
 }
 
 struct ProgressCallbacks {
@@ -211,24 +123,28 @@ pub fn run(args: VectorLoadArgs) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("  ns={}, db={}", args.ns, args.db);
     eprintln!(
         "  tables: {}",
-        files.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ")
+        files
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     );
 
     let client = SurrealClient::new(&args.surreal, &args.ns, &args.db, &args.user, &args.pass);
 
     // Setup namespace and database
-    let setup_sql = vector_loader::setup_sql(&args.ns, &args.db);
+    let setup_sql = loader::setup_sql(&args.ns, &args.db);
     client.exec(&setup_sql)?;
     eprintln!("  namespace/database ready");
 
     // Create progress tracking table
-    client.exec(&vector_loader::progress_table_sql())?;
+    client.exec(&loader::progress_table_sql())?;
 
     // Create schemas for each table
     for (component, path) in &files {
         let reader = VectorReader::open(path)?;
         let dimension = reader.header().dimension;
-        let schema = vector_loader::schema_sql(component, dimension)?;
+        let schema = loader::schema_sql(component, dimension)?;
         client.exec(&schema)?;
         eprintln!("  schema: {component} (dim={dimension})");
     }
@@ -255,7 +171,7 @@ pub fn run(args: VectorLoadArgs) -> Result<(), Box<dyn std::error::Error>> {
 
         // Check completed layers for resume
         let completed = if args.resume {
-            match client.completed_layers(component) {
+            match completed_layers(&client, component) {
                 Ok(layers) => {
                     if !layers.is_empty() {
                         eprintln!(
@@ -305,7 +221,7 @@ pub fn run(args: VectorLoadArgs) -> Result<(), Box<dyn std::error::Error>> {
             // Layer transition — mark previous layer done
             if current_layer.is_some() && current_layer != Some(record.layer) {
                 if let Some(prev) = current_layer {
-                    let sql = vector_loader::mark_layer_done_sql(component, prev, layer_count);
+                    let sql = loader::mark_layer_done_sql(component, prev, layer_count);
                     client.exec(&sql)?;
                     layer_count = 0;
                 }
@@ -313,7 +229,7 @@ pub fn run(args: VectorLoadArgs) -> Result<(), Box<dyn std::error::Error>> {
             current_layer = Some(record.layer);
 
             // Insert single record
-            let sql = vector_loader::single_insert_sql(component, &record);
+            let sql = loader::single_insert_sql(component, &record);
             client.exec(&sql)?;
             total_loaded += 1;
             layer_count += 1;
@@ -326,7 +242,7 @@ pub fn run(args: VectorLoadArgs) -> Result<(), Box<dyn std::error::Error>> {
         // Mark final layer done
         if let Some(last_layer) = current_layer {
             if layer_count > 0 {
-                let sql = vector_loader::mark_layer_done_sql(component, last_layer, layer_count);
+                let sql = loader::mark_layer_done_sql(component, last_layer, layer_count);
                 client.exec(&sql)?;
             }
         }
@@ -352,9 +268,7 @@ pub fn run(args: VectorLoadArgs) -> Result<(), Box<dyn std::error::Error>> {
         if s.records_loaded > 0 {
             eprintln!(
                 "  {}: {} records ({:.0}s)",
-                s.table,
-                s.records_loaded,
-                s.elapsed_secs,
+                s.table, s.records_loaded, s.elapsed_secs,
             );
         }
     }
