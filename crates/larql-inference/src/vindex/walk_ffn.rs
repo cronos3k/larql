@@ -5,7 +5,7 @@ use ndarray::Array2;
 use crate::ffn::FfnBackend;
 use crate::model::ModelWeights;
 
-use super::index::{VectorIndex, WalkHit, WalkTrace};
+use larql_vindex::{VectorIndex, WalkHit, WalkTrace};
 
 /// FFN backend that uses the VectorIndex for gate selection.
 ///

@@ -57,7 +57,7 @@ pub struct VindexLayerInfo {
 
 /// Down metadata entry in the NDJSON file (compact, no vectors).
 #[derive(Serialize, Deserialize)]
-pub(crate) struct DownMetaRecord {
+pub struct DownMetaRecord {
     #[serde(rename = "l")]
     pub layer: usize,
     #[serde(rename = "f")]
@@ -73,7 +73,7 @@ pub(crate) struct DownMetaRecord {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(crate) struct DownMetaTopK {
+pub struct DownMetaTopK {
     #[serde(rename = "t")]
     pub token: String,
     #[serde(rename = "i")]

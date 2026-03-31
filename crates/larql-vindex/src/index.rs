@@ -6,7 +6,7 @@ use std::path::Path;
 
 use ndarray::{Array1, Array2};
 
-use crate::error::InferenceError;
+use crate::error::VindexError;
 
 use larql_models::TopKEntry;
 
@@ -65,7 +65,7 @@ pub struct VectorIndex {
 
 impl VectorIndex {
     /// Create a new VectorIndex from components.
-    pub(crate) fn new(
+    pub fn new(
         gate_vectors: Vec<Option<Array2<f32>>>,
         down_meta: Vec<Option<Vec<Option<FeatureMeta>>>>,
         num_layers: usize,
@@ -86,7 +86,7 @@ impl VectorIndex {
     pub fn load_gates(
         path: &Path,
         callbacks: &mut dyn IndexLoadCallbacks,
-    ) -> Result<Self, InferenceError> {
+    ) -> Result<Self, VindexError> {
         callbacks.on_file_start("ffn_gate", &path.display().to_string());
         let start = std::time::Instant::now();
 
@@ -107,7 +107,7 @@ impl VectorIndex {
             }
 
             let obj: serde_json::Value =
-                serde_json::from_str(line).map_err(|e| InferenceError::Parse(e.to_string()))?;
+                serde_json::from_str(line).map_err(|e| VindexError::Parse(e.to_string()))?;
 
             if obj.get("_header").is_some() {
                 if let Some(dim) = obj.get("dimension").and_then(|v| v.as_u64()) {
@@ -220,7 +220,7 @@ impl VectorIndex {
         &mut self,
         path: &Path,
         callbacks: &mut dyn IndexLoadCallbacks,
-    ) -> Result<usize, InferenceError> {
+    ) -> Result<usize, VindexError> {
         callbacks.on_file_start("ffn_down", &path.display().to_string());
         let start = std::time::Instant::now();
 
@@ -236,7 +236,7 @@ impl VectorIndex {
             }
 
             let obj: serde_json::Value =
-                serde_json::from_str(line).map_err(|e| InferenceError::Parse(e.to_string()))?;
+                serde_json::from_str(line).map_err(|e| VindexError::Parse(e.to_string()))?;
 
             if obj.get("_header").is_some() {
                 continue;

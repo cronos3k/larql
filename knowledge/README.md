@@ -160,15 +160,21 @@ Structured (subject, object) pairs grouped by relation. Model-agnostic.
 | WordNet | synonym, hypernym, antonym, meronym, derivation | 17,800 | L0-13 |
 | Morphological | plural, gerund, past_tense, comparative, ... | 3,952 | L0-7 |
 | English Grammar | determiner->noun, preposition->object, ... | 1,040 | L4-13 |
-| AST (5 langs) | def->identifier, fn->identifier, ... | 17,518 | L0-13 |
+| AST (5 langs) | def->identifier, fn->identifier, ... | 13,012 | L0-13 |
 
 ### Probe Labels
 
-Ground truth from actual model inference. Per-feature labels confirmed by running entities through the model and matching gate activations against Wikidata triples.
+Ground truth from actual model inference. Two matching strategies:
 
 ```
-Entity + Template -> Model Forward Pass -> Gate Scores -> Match Against Triples -> Label
+Strategy 1 (gate matching):
+  Entity + Template -> Forward Pass -> Gate Scores -> Down Meta Token -> Match Triple
+
+Strategy 2 (prediction matching):
+  Entity + Template -> Forward Pass -> LM Head Logits -> Top Predictions -> Match Triple
 ```
+
+Strategy 2 captures what the model actually predicts (e.g. "Macron" for "The president of France is"), then matches against normalized triple objects (e.g. "Emmanuel Macron" -> ["emmanuel macron", "macron", "emmanuel"]).
 
 **157 probe-confirmed features** for gemma-3-4b-it across 17 relations.
 
@@ -396,11 +402,11 @@ python3 -m pytest tests/test_wikidata_combined.py -v # Combined triples
 
 ## Current Stats
 
-- **144 relation types**, 18,867 pairs across 18 domains
+- **144 relation types**, 18,502 pairs across 18 domains
 - **142 probe template groups**, 426 templates (2-3 variants each)
 - **9 WordNet relations**, 17,800 pairs
 - **10 morphological relations**, 3,952 pairs
-- **5 AST languages** (Python, Rust, JavaScript, TypeScript, C), 17,518 pairs
+- **5 AST languages** (Python, Rust, JavaScript, TypeScript, C), 13,012 pairs
 - **157 probe-confirmed features** for gemma-3-4b-it
 - **666 tests**, all passing
 
@@ -421,7 +427,7 @@ Labels come from multiple sources. Higher priority overrides lower:
 | Phase | Triples | Relations | AST Languages | Probe Features | Status |
 |-------|---------|-----------|---------------|----------------|--------|
 | 1 | 16K | 32 | 1 | 112 | Done |
-| 2 | 19K | 144 | 5 | 157 | Current |
+| 2 | 18.5K | 144 | 5 | 157 | Current |
 | 3 | 500K | 150+ | 15 | 5,000+ | Next |
 | 4 | 2M+ | 200+ | 30+ | 20,000+ | Future |
 

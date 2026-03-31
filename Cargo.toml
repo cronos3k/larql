@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/larql-models",
     "crates/larql-core",
+    "crates/larql-vindex",
     "crates/larql-inference",
     "crates/larql-lql",
     "crates/larql-surreal",
@@ -12,6 +13,7 @@ members = [
 default-members = [
     "crates/larql-models",
     "crates/larql-core",
+    "crates/larql-vindex",
     "crates/larql-inference",
     "crates/larql-lql",
     "crates/larql-surreal",

@@ -20,11 +20,11 @@ impl Session {
                     )));
                 }
 
-                let config = larql_inference::load_vindex_config(&path)
+                let config = larql_vindex::load_vindex_config(&path)
                     .map_err(|e| LqlError::Execution(format!("failed to load vindex config: {e}")))?;
 
-                let mut cb = larql_inference::vector_index::SilentLoadCallbacks;
-                let index = larql_inference::VectorIndex::load_vindex(&path, &mut cb)
+                let mut cb = larql_vindex::SilentLoadCallbacks;
+                let index = larql_vindex::VectorIndex::load_vindex(&path, &mut cb)
                     .map_err(|e| LqlError::Execution(format!("failed to load vindex: {e}")))?;
 
                 let total_features: usize = config.layers.iter().map(|l| l.num_features).sum();
@@ -259,7 +259,7 @@ impl Session {
             .map_err(|e| LqlError::Execution(format!("failed to create output dir: {e}")))?;
 
         let mut callbacks = LqlBuildCallbacks::new();
-        larql_inference::VectorIndex::build_vindex(
+        larql_inference::vindex::build_vindex(
             inference_model.weights(),
             inference_model.tokenizer(),
             model,
@@ -273,10 +273,10 @@ impl Session {
         out.push(format!("Extraction complete: {}", output_dir.display()));
 
         // Auto-load the newly created vindex
-        let config = larql_inference::load_vindex_config(&output_dir)
+        let config = larql_vindex::load_vindex_config(&output_dir)
             .map_err(|e| LqlError::Execution(format!("failed to load vindex config: {e}")))?;
-        let mut cb = larql_inference::vector_index::SilentLoadCallbacks;
-        let index = larql_inference::VectorIndex::load_vindex(&output_dir, &mut cb)
+        let mut cb = larql_vindex::SilentLoadCallbacks;
+        let index = larql_vindex::VectorIndex::load_vindex(&output_dir, &mut cb)
             .map_err(|e| LqlError::Execution(format!("failed to load vindex: {e}")))?;
         let relation_classifier = RelationClassifier::from_vindex(&output_dir);
 
@@ -316,7 +316,7 @@ impl Session {
             VindexRef::Path(p) => PathBuf::from(p),
         };
 
-        let config = larql_inference::load_vindex_config(&vindex_path)
+        let config = larql_vindex::load_vindex_config(&vindex_path)
             .map_err(|e| LqlError::Execution(format!("failed to load vindex config: {e}")))?;
 
         if !config.has_model_weights {
@@ -333,7 +333,7 @@ impl Session {
         std::fs::create_dir_all(&output_dir)
             .map_err(|e| LqlError::Execution(format!("failed to create output dir: {e}")))?;
 
-        let mut cb = larql_inference::vector_index::SilentLoadCallbacks;
+        let mut cb = larql_vindex::SilentLoadCallbacks;
         let weights = larql_inference::load_model_weights_from_vindex(&vindex_path, &mut cb)
             .map_err(|e| LqlError::Execution(format!("failed to load model weights: {e}")))?;
 
@@ -373,10 +373,10 @@ impl Session {
         let path_a = self.resolve_vindex_ref(a)?;
         let path_b = self.resolve_vindex_ref(b)?;
 
-        let mut cb = larql_inference::vector_index::SilentLoadCallbacks;
-        let index_a = larql_inference::VectorIndex::load_vindex(&path_a, &mut cb)
+        let mut cb = larql_vindex::SilentLoadCallbacks;
+        let index_a = larql_vindex::VectorIndex::load_vindex(&path_a, &mut cb)
             .map_err(|e| LqlError::Execution(format!("failed to load {}: {e}", path_a.display())))?;
-        let index_b = larql_inference::VectorIndex::load_vindex(&path_b, &mut cb)
+        let index_b = larql_vindex::VectorIndex::load_vindex(&path_b, &mut cb)
             .map_err(|e| LqlError::Execution(format!("failed to load {}: {e}", path_b.display())))?;
 
         let limit = limit.unwrap_or(20) as usize;

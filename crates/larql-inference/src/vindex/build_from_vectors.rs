@@ -7,12 +7,10 @@ use std::path::Path;
 use crate::error::InferenceError;
 
 use super::build::IndexBuildCallbacks;
-use super::config::{
+use larql_vindex::config::{
     DownMetaRecord, DownMetaTopK, VindexConfig, VindexLayerInfo,
 };
-use super::index::VectorIndex;
 
-impl VectorIndex {
     /// Build a .vindex from already-extracted NDJSON vector files.
     ///
     /// Reads ffn_gate.vectors.jsonl, ffn_down.vectors.jsonl, and
@@ -297,7 +295,6 @@ impl VectorIndex {
 
         Ok(())
     }
-}
 
 /// Try to find tokenizer.json near the vectors directory.
 fn find_tokenizer(vectors_dir: &Path) -> Option<std::path::PathBuf> {

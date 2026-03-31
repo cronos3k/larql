@@ -41,9 +41,9 @@ impl Session {
         })?;
 
         // Load embeddings to synthesize gate vector
-        let (embed, embed_scale) = larql_inference::load_vindex_embeddings(path)
+        let (embed, embed_scale) = larql_vindex::load_vindex_embeddings(path)
             .map_err(|e| LqlError::Execution(format!("failed to load embeddings: {e}")))?;
-        let tokenizer = larql_inference::load_vindex_tokenizer(path)
+        let tokenizer = larql_vindex::load_vindex_tokenizer(path)
             .map_err(|e| LqlError::Execution(format!("failed to load tokenizer: {e}")))?;
 
         // Tokenize entity to get embedding for gate vector
@@ -58,7 +58,7 @@ impl Session {
 
         // Average entity token embeddings, scale to match gate magnitudes
         let hidden = embed.shape()[1];
-        let mut gate_vec = larql_inference::ndarray::Array1::<f32>::zeros(hidden);
+        let mut gate_vec = larql_vindex::ndarray::Array1::<f32>::zeros(hidden);
         for &tok in &entity_ids {
             let row = embed.row(tok as usize);
             gate_vec += &row.mapv(|v| v * embed_scale);
@@ -94,7 +94,7 @@ impl Session {
 
         let c_score = confidence.unwrap_or(0.9);
 
-        let meta = larql_inference::vindex::index::FeatureMeta {
+        let meta = larql_vindex::FeatureMeta {
             top_token: target.to_string(),
             top_token_id: target_id,
             c_score,
@@ -279,8 +279,8 @@ impl Session {
         let strategy = conflict.unwrap_or(ConflictStrategy::KeepSource);
 
         // Load source
-        let mut cb = larql_inference::vector_index::SilentLoadCallbacks;
-        let source_index = larql_inference::VectorIndex::load_vindex(&source_path, &mut cb)
+        let mut cb = larql_vindex::SilentLoadCallbacks;
+        let source_index = larql_vindex::VectorIndex::load_vindex(&source_path, &mut cb)
             .map_err(|e| LqlError::Execution(format!("failed to load source: {e}")))?;
 
         // Get mutable access to the target
@@ -346,8 +346,8 @@ impl Session {
     ) -> Result<
         (
             &std::path::Path,
-            &larql_inference::VindexConfig,
-            &mut larql_inference::VectorIndex,
+            &larql_vindex::VindexConfig,
+            &mut larql_vindex::VectorIndex,
         ),
         LqlError,
     > {

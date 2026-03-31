@@ -1,31 +1,22 @@
 [package]
-name = "larql-inference"
+name = "larql-vindex"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Transformer inference engine — forward pass, attention, FFN, layer norm from safetensors weights"
-keywords = ["transformer", "inference", "llm", "interpretability"]
+description = "Vindex — the queryable model format. Storage, KNN index, build, load, mutate."
+keywords = ["transformer", "vindex", "knn", "interpretability"]
 categories = ["science"]
 
 [dependencies]
 larql-models = { path = "../larql-models" }
-larql-core = { path = "../larql-core" }
-larql-vindex = { path = "../larql-vindex" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-
-# Model weights
-safetensors = "0.5"
-memmap2 = "0.9"
 
 # Matrix ops (BLAS-accelerated)
 ndarray = { version = "0.16", features = ["blas"] }
 blas-src = { version = "0.10", features = ["accelerate"] }
 
-# Tokenizer
+# Tokenizer (for embeddings loading + token resolution)
 tokenizers = "0.21"
-
-[dev-dependencies]
-assert_approx_eq = "1"

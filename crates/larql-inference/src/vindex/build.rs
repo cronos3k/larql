@@ -250,10 +250,9 @@ fn run_clustering_pipeline(
     Ok(())
 }
 
-use super::config::{
+use larql_vindex::config::{
     DownMetaRecord, DownMetaTopK, VindexConfig, VindexLayerInfo, VindexModelConfig,
 };
-use super::index::VectorIndex;
 
 /// Callbacks for index build progress.
 pub trait IndexBuildCallbacks {
@@ -267,7 +266,6 @@ pub trait IndexBuildCallbacks {
 pub struct SilentBuildCallbacks;
 impl IndexBuildCallbacks for SilentBuildCallbacks {}
 
-impl VectorIndex {
     /// Build a .vindex from model weights and write it to disk.
     ///
     /// Reads gate vectors and down projections directly from safetensors,
@@ -693,4 +691,3 @@ impl VectorIndex {
 
         Ok(())
     }
-}

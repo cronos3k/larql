@@ -14,9 +14,10 @@ dependencies = [
 
 [project.optional-dependencies]
 wordnet = ["nltk", "inflect"]
-probe = ["mlx", "mlx-lm"]
+probe = ["mlx", "mlx-lm"]  # Apple Silicon only
+vindex = ["tokenizers"]
 ast = ["tree-sitter"]
-all = ["nltk", "inflect", "mlx", "mlx-lm", "tree-sitter"]
+all = ["nltk", "inflect", "mlx", "mlx-lm", "tree-sitter", "tokenizers"]
 
 [project.scripts]
 larql-knowledge = "larql_knowledge.cli:main"
@@ -27,3 +28,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/larql_knowledge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

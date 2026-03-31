@@ -38,7 +38,7 @@ TEMPLATES = {
     "nationality": "The nationality of {X} is",
 }
 
-VINDEX = "output/gemma3-4b-full.vindex"
+VINDEX = None  # Set via --vindex argument
 BINARY = "target/release/larql"
 
 
@@ -86,10 +86,19 @@ def parse_walk_trace(output):
 
 def main() -> None:
     """Probe entities via larql CLI walk and match against Wikidata triples."""
-    triples_path = "data/wikidata_triples.json"
+    global VINDEX
+    import argparse
+    parser = argparse.ArgumentParser(description="Probe entities via larql CLI walk")
+    parser.add_argument("--vindex", type=str, required=True, help="Path to vindex directory")
+    parser.add_argument("--triples", type=str, default="data/wikidata_triples.json", help="Path to triples JSON")
+    parser.add_argument("--binary", type=str, default=BINARY, help="Path to larql binary")
+    args = parser.parse_args()
+
+    VINDEX = args.vindex
+    triples_path = args.triples
 
     # Check binary exists
-    if not Path(BINARY).exists():
+    if not Path(args.binary).exists():
         print(f"Build first: cargo build --release")
         sys.exit(1)
 

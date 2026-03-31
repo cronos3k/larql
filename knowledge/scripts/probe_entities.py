@@ -10,7 +10,7 @@ scaling to the full 16K entity set.
 Usage:
     python3 scripts/probe_entities.py
 
-Requires: the vindex at output/gemma3-4b-full.vindex
+Requires: a vindex directory (pass via --vindex)
 """
 
 import json
@@ -121,8 +121,14 @@ def check_wikidata_match(entity, target, triples):
 
 def main() -> None:
     """Probe test entities through the vindex and match against Wikidata."""
-    vindex_dir = "output/gemma3-4b-full.vindex"
-    triples_path = "data/wikidata_triples.json"
+    import argparse
+    parser = argparse.ArgumentParser(description="Probe entities through vindex")
+    parser.add_argument("--vindex", type=str, required=True, help="Path to vindex directory")
+    parser.add_argument("--triples", type=str, default="data/wikidata_triples.json", help="Path to triples JSON")
+    args = parser.parse_args()
+
+    vindex_dir = args.vindex
+    triples_path = args.triples
 
     print("Loading vindex...")
     config, embed, embed_scale, gates, down_meta, tokenizer = load_vindex(vindex_dir)

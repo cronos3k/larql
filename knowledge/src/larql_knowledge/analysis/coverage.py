@@ -110,10 +110,19 @@ def _report_probes(probes_dir: Path):
 
         with open(labels_path) as f:
             labels = json.load(f)
-        rel_counts = Counter(labels.values())
+        # Handle both flat dict {"L27_F9515": "capital"} and
+        # rich list [{"layer": 27, "feature": 9515, "relation": "capital"}]
+        if isinstance(labels, dict):
+            rel_counts = Counter(labels.values())
+            num_labels = len(labels)
+        elif isinstance(labels, list):
+            rel_counts = Counter(entry.get("relation", "?") for entry in labels)
+            num_labels = len(labels)
+        else:
+            continue
 
         print(f"  {model_dir.name}:")
-        print(f"    {len(labels)} features, {len(rel_counts)} relations")
+        print(f"    {num_labels} features, {len(rel_counts)} relations")
         for rel, count in rel_counts.most_common(10):
             print(f"      {rel:<20s} {count:>4d}")
 

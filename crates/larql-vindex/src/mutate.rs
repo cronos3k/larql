@@ -7,9 +7,9 @@ use std::path::Path;
 
 use ndarray::Array1;
 
-use crate::error::InferenceError;
-use super::config::{DownMetaRecord, DownMetaTopK, VindexConfig};
-use super::index::{FeatureMeta, VectorIndex};
+use crate::error::VindexError;
+use crate::config::{DownMetaRecord, DownMetaTopK, VindexConfig};
+use crate::index::{FeatureMeta, VectorIndex};
 
 impl VectorIndex {
     /// Set metadata for a feature. Used by INSERT and UPDATE.
@@ -106,7 +106,7 @@ impl VectorIndex {
     }
 
     /// Write down_meta.jsonl back to disk. Overwrites the existing file.
-    pub fn save_down_meta(&self, dir: &Path) -> Result<usize, InferenceError> {
+    pub fn save_down_meta(&self, dir: &Path) -> Result<usize, VindexError> {
         let path = dir.join("down_meta.jsonl");
         let file = std::fs::File::create(&path)?;
         let mut writer = BufWriter::new(file);
@@ -133,7 +133,7 @@ impl VectorIndex {
                                 .collect(),
                         };
                         serde_json::to_writer(&mut writer, &record)
-                            .map_err(|e| InferenceError::Parse(e.to_string()))?;
+                            .map_err(|e| VindexError::Parse(e.to_string()))?;
                         writer.write_all(b"\n")?;
                         count += 1;
                     }
@@ -149,7 +149,7 @@ impl VectorIndex {
     pub fn save_gate_vectors(
         &self,
         dir: &Path,
-    ) -> Result<Vec<super::config::VindexLayerInfo>, InferenceError> {
+    ) -> Result<Vec<crate::config::VindexLayerInfo>, VindexError> {
         let path = dir.join("gate_vectors.bin");
         let file = std::fs::File::create(&path)?;
         let mut writer = BufWriter::new(file);
@@ -159,7 +159,7 @@ impl VectorIndex {
         for (layer, gate_opt) in self.gate_vectors.iter().enumerate() {
             if let Some(ref matrix) = gate_opt {
                 let data = matrix.as_slice().ok_or_else(|| {
-                    InferenceError::Parse("gate vectors not contiguous".into())
+                    VindexError::Parse("gate vectors not contiguous".into())
                 })?;
                 let bytes: &[u8] = unsafe {
                     std::slice::from_raw_parts(
@@ -170,7 +170,7 @@ impl VectorIndex {
                 writer.write_all(bytes)?;
 
                 let length = bytes.len() as u64;
-                layer_infos.push(super::config::VindexLayerInfo {
+                layer_infos.push(crate::config::VindexLayerInfo {
                     layer,
                     num_features: matrix.shape()[0],
                     offset,
@@ -185,10 +185,10 @@ impl VectorIndex {
     }
 
     /// Save config (index.json) to disk.
-    pub fn save_config(config: &VindexConfig, dir: &Path) -> Result<(), InferenceError> {
+    pub fn save_config(config: &VindexConfig, dir: &Path) -> Result<(), VindexError> {
         let path = dir.join("index.json");
         let json = serde_json::to_string_pretty(config)
-            .map_err(|e| InferenceError::Parse(e.to_string()))?;
+            .map_err(|e| VindexError::Parse(e.to_string()))?;
         std::fs::write(path, json)?;
         Ok(())
     }
@@ -199,7 +199,7 @@ impl VectorIndex {
         &self,
         dir: &Path,
         config: &mut VindexConfig,
-    ) -> Result<(), InferenceError> {
+    ) -> Result<(), VindexError> {
         let layer_infos = self.save_gate_vectors(dir)?;
         config.layers = layer_infos;
         self.save_down_meta(dir)?;

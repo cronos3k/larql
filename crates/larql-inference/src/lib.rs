@@ -12,12 +12,11 @@ pub mod route_ffn;
 pub mod residual;
 pub mod tokenizer;
 pub mod vindex;
-/// Backward-compatible alias: `crate::vector_index` → `crate::vindex`.
-pub use vindex as vector_index;
 pub mod walker;
 
 // Re-export dependencies for downstream crates.
 pub use larql_models;
+pub use larql_vindex;
 pub use ndarray;
 pub use safetensors;
 pub use tokenizers;
@@ -36,7 +35,6 @@ pub use forward::{
     PredictResult, TraceResult,
 };
 pub use graph_ffn::{GateIndex, IndexBuildCallbacks, SilentIndexCallbacks};
-// Experimental FFN backends (in experimental/)
 pub use ffn::experimental::cached::CachedFfn;
 pub use ffn::experimental::clustered::{ClusteredFfn, ClusteredGateIndex};
 pub use ffn::experimental::down_clustered::{DownClusteredFfn, DownClusteredIndex};
@@ -45,9 +43,9 @@ pub use ffn::experimental::feature_list::FeatureListFfn;
 pub use ffn::experimental::graph::GraphFfn;
 pub use route_ffn::{RouteFfn, RouteGuidedFfn, RouteTable};
 pub use vindex::{
-    load_feature_labels, load_model_weights_from_vindex, load_vindex_config,
-    load_vindex_embeddings, load_vindex_tokenizer, write_model_weights, VectorIndex, VindexConfig,
-    WalkFfn, WalkTrace,
+    build_vindex, build_vindex_resume, build_vindex_from_vectors,
+    load_model_weights_from_vindex, write_model_weights,
+    WalkFfn, IndexBuildCallbacks as VindexBuildCallbacks, SilentBuildCallbacks,
 };
 pub use model::{load_model_dir, resolve_model_path, ModelWeights};
 pub use tokenizer::{decode_token, load_tokenizer};

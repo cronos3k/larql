@@ -2,15 +2,15 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use clap::Args;
-use larql_inference::ndarray;
-use larql_inference::tokenizers;
-use larql_inference::vector_index::{
-    load_model_weights_from_vindex, load_vindex_embeddings, load_vindex_tokenizer,
-    IndexLoadCallbacks, SilentLoadCallbacks, VectorIndex, WalkFfn,
+use larql_vindex::{
+    load_vindex_embeddings, load_vindex_tokenizer,
+    IndexLoadCallbacks, SilentLoadCallbacks, VectorIndex, ndarray, tokenizers,
 };
 use larql_inference::{
+    load_model_weights_from_vindex,
     predict_with_ffn, predict_with_router, InferenceModel, LayerFfnRouter, ModelWeights,
     SparseFfn, WeightFfn,
+    vindex::WalkFfn,
 };
 
 #[derive(Args)]
@@ -455,7 +455,7 @@ fn print_summary_row(label: &str, predictions: &[(String, f64)], elapsed: std::t
     );
 }
 
-fn print_walk_trace(trace: &larql_inference::vector_index::WalkTrace, down_top_k: usize) {
+fn print_walk_trace(trace: &larql_vindex::WalkTrace, down_top_k: usize) {
     for (layer, hits) in &trace.layers {
         if hits.is_empty() {
             continue;

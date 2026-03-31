@@ -2,11 +2,11 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use clap::Args;
-use larql_inference::vector_index::{
-    load_vindex_tokenizer, IndexLoadCallbacks, VectorIndex, WalkFfn,
+use larql_vindex::{load_vindex_tokenizer, IndexLoadCallbacks, VectorIndex};
+use larql_inference::{
+    predict, predict_with_ffn, DownClusteredFfn, DownClusteredIndex, InferenceModel,
+    vindex::WalkFfn,
 };
-use larql_inference::{predict, predict_with_ffn, DownClusteredFfn, DownClusteredIndex};
-use larql_inference::InferenceModel;
 
 #[derive(Args)]
 pub struct VindexBenchArgs {

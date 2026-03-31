@@ -11,9 +11,8 @@ use crate::error::InferenceError;
 use crate::model::ModelWeights;
 
 use super::build::IndexBuildCallbacks;
-use super::config::{VindexConfig, VindexModelConfig};
-use super::index::IndexLoadCallbacks;
-use super::load::load_vindex_config;
+use larql_vindex::config::{VindexConfig, VindexModelConfig};
+use larql_vindex::{IndexLoadCallbacks, load_vindex_config};
 
 /// Write all model weights (attention + FFN + norms) to a vindex directory.
 ///

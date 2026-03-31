@@ -71,8 +71,14 @@ def embed_entity(entity, embed, embed_scale, tokenizer):
 
 def main() -> None:
     """Build per-feature relation labels from probe data and Wikidata matching."""
-    vindex_dir = "output/gemma3-4b-full.vindex"
-    triples_path = "data/wikidata_triples.json"
+    import argparse
+    parser = argparse.ArgumentParser(description="Build feature labels from vindex + triples")
+    parser.add_argument("--vindex", type=str, required=True, help="Path to vindex directory")
+    parser.add_argument("--triples", type=str, default="data/wikidata_triples.json", help="Path to triples JSON")
+    args = parser.parse_args()
+
+    vindex_dir = args.vindex
+    triples_path = args.triples
 
     print("Loading vindex...")
     config, embed, embed_scale, gates, down_meta, tokenizer = load_vindex(vindex_dir)

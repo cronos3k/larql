@@ -30,12 +30,7 @@ def main() -> None:
     sub.add_parser("coverage", help="Show coverage report")
 
     # Probe
-    prb = sub.add_parser("probe", help="Run model probe")
-    prb.add_argument("--vindex", type=Path, required=True)
-    prb.add_argument("--model", type=str, default="google/gemma-3-4b-it")
-    prb.add_argument("--output", type=Path, default=Path("probes"))
-    prb.add_argument("--triples", type=Path, default=Path("data/wikidata_triples.json"))
-    prb.add_argument("--templates", type=Path, default=Path("data/probe_templates.json"))
+    sub.add_parser("probe", help="Run model probe (requires MLX)")
 
     args = parser.parse_args()
 

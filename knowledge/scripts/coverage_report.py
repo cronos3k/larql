@@ -44,6 +44,8 @@ def main() -> None:
     # WordNet coverage
     print("\n=== WordNet Coverage ===\n")
     wordnet_path = data_dir / "wordnet_relations.json"
+    wn = {}
+    wn_total = 0
     if wordnet_path.exists():
         with open(wordnet_path) as f:
             wn = json.load(f)
@@ -89,6 +91,7 @@ def main() -> None:
     # Templates coverage
     print("\n=== Template Coverage ===\n")
     templates_path = data_dir / "probe_templates.json"
+    templates = {}
     if templates_path.exists():
         with open(templates_path) as f:
             templates = json.load(f)
@@ -136,9 +139,10 @@ def main() -> None:
     # Summary
     print("=== Summary ===\n")
     print(f"  Wikidata: {len(relations)} relations, {total_pairs:,} pairs")
-    if wordnet_path.exists():
+    if wn:
         print(f"  WordNet: {len(wn)} relations, {wn_total:,} pairs")
-    print(f"  Templates: {len(templates) if templates_path.exists() else 0} relations")
+    if templates:
+        print(f"  Templates: {len(templates)} relations")
     probe_total = 0
     if probes_dir.exists():
         for model_dir in probes_dir.iterdir():

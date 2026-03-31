@@ -6,12 +6,12 @@ use std::path::Path;
 
 use ndarray::Array2;
 
-use crate::error::InferenceError;
+use crate::error::VindexError;
 
 use larql_models::TopKEntry;
 
-use super::config::{DownMetaRecord, VindexConfig};
-use super::index::{FeatureMeta, IndexLoadCallbacks, VectorIndex};
+use crate::config::{DownMetaRecord, VindexConfig};
+use crate::index::{FeatureMeta, IndexLoadCallbacks, VectorIndex};
 
 impl VectorIndex {
     /// Load a VectorIndex from a .vindex directory.
@@ -21,12 +21,12 @@ impl VectorIndex {
     pub fn load_vindex(
         dir: &Path,
         callbacks: &mut dyn IndexLoadCallbacks,
-    ) -> Result<Self, InferenceError> {
+    ) -> Result<Self, VindexError> {
         // Read config
         let config_path = dir.join("index.json");
         let config_text = std::fs::read_to_string(&config_path)?;
         let config: VindexConfig = serde_json::from_str(&config_text)
-            .map_err(|e| InferenceError::Parse(e.to_string()))?;
+            .map_err(|e| VindexError::Parse(e.to_string()))?;
 
         let num_layers = config.num_layers;
         let hidden_size = config.hidden_size;
@@ -55,7 +55,7 @@ impl VectorIndex {
                 (info.num_features, hidden_size),
                 layer_data.to_vec(),
             )
-            .map_err(|e| InferenceError::Parse(e.to_string()))?;
+            .map_err(|e| VindexError::Parse(e.to_string()))?;
             gate_vectors[info.layer] = Some(matrix);
             total_gate += info.num_features;
         }
@@ -85,7 +85,7 @@ impl VectorIndex {
             }
 
             let record: DownMetaRecord = serde_json::from_str(line)
-                .map_err(|e| InferenceError::Parse(e.to_string()))?;
+                .map_err(|e| VindexError::Parse(e.to_string()))?;
 
             let layer = record.layer;
             let feature = record.feature;
@@ -134,10 +134,10 @@ impl VectorIndex {
 }
 
 /// Load embeddings from a .vindex directory.
-pub fn load_vindex_embeddings(dir: &Path) -> Result<(Array2<f32>, f32), InferenceError> {
+pub fn load_vindex_embeddings(dir: &Path) -> Result<(Array2<f32>, f32), VindexError> {
     let config_text = std::fs::read_to_string(dir.join("index.json"))?;
     let config: VindexConfig = serde_json::from_str(&config_text)
-        .map_err(|e| InferenceError::Parse(e.to_string()))?;
+        .map_err(|e| VindexError::Parse(e.to_string()))?;
 
     let embed_bytes = std::fs::read(dir.join("embeddings.bin"))?;
     let embed_floats: Vec<f32> = unsafe {
@@ -149,28 +149,28 @@ pub fn load_vindex_embeddings(dir: &Path) -> Result<(Array2<f32>, f32), Inferenc
     .to_vec();
 
     let embed = Array2::from_shape_vec((config.vocab_size, config.hidden_size), embed_floats)
-        .map_err(|e| InferenceError::Parse(e.to_string()))?;
+        .map_err(|e| VindexError::Parse(e.to_string()))?;
 
     Ok((embed, config.embed_scale))
 }
 
 /// Load tokenizer from a .vindex directory.
-pub fn load_vindex_tokenizer(dir: &Path) -> Result<tokenizers::Tokenizer, InferenceError> {
+pub fn load_vindex_tokenizer(dir: &Path) -> Result<tokenizers::Tokenizer, VindexError> {
     let path = dir.join("tokenizer.json");
-    tokenizers::Tokenizer::from_file(&path).map_err(|e| InferenceError::Parse(e.to_string()))
+    tokenizers::Tokenizer::from_file(&path).map_err(|e| VindexError::Parse(e.to_string()))
 }
 
 /// Load the vindex config.
-pub fn load_vindex_config(dir: &Path) -> Result<VindexConfig, InferenceError> {
+pub fn load_vindex_config(dir: &Path) -> Result<VindexConfig, VindexError> {
     let text = std::fs::read_to_string(dir.join("index.json"))?;
-    serde_json::from_str(&text).map_err(|e| InferenceError::Parse(e.to_string()))
+    serde_json::from_str(&text).map_err(|e| VindexError::Parse(e.to_string()))
 }
 
 /// Load feature labels from down_meta.jsonl — fast hash lookup, no vocab projection.
 ///
 /// Returns a map: (layer, feature) → top_token string.
 /// Also works with the gate vectors NDJSON from vector-extract (has same fields).
-pub fn load_feature_labels(path: &Path) -> Result<HashMap<(usize, usize), String>, InferenceError> {
+pub fn load_feature_labels(path: &Path) -> Result<HashMap<(usize, usize), String>, VindexError> {
     let file = std::fs::File::open(path)?;
     let reader = BufReader::with_capacity(1 << 20, file);
     let mut labels: HashMap<(usize, usize), String> = HashMap::new();
@@ -183,7 +183,7 @@ pub fn load_feature_labels(path: &Path) -> Result<HashMap<(usize, usize), String
         }
 
         let obj: serde_json::Value =
-            serde_json::from_str(line).map_err(|e| InferenceError::Parse(e.to_string()))?;
+            serde_json::from_str(line).map_err(|e| VindexError::Parse(e.to_string()))?;
 
         if obj.get("_header").is_some() {
             continue;

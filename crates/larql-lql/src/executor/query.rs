@@ -24,9 +24,9 @@ impl Session {
         let (path, _config, index) = self.require_vindex()?;
         let top_k = top.unwrap_or(10) as usize;
 
-        let (embed, embed_scale) = larql_inference::load_vindex_embeddings(path)
+        let (embed, embed_scale) = larql_vindex::load_vindex_embeddings(path)
             .map_err(|e| LqlError::Execution(format!("failed to load embeddings: {e}")))?;
-        let tokenizer = larql_inference::load_vindex_tokenizer(path)
+        let tokenizer = larql_vindex::load_vindex_tokenizer(path)
             .map_err(|e| LqlError::Execution(format!("failed to load tokenizer: {e}")))?;
 
         let encoding = tokenizer
@@ -44,7 +44,7 @@ impl Session {
             .unwrap_or_else(|_| format!("T{last_tok}"));
 
         let embed_row = embed.row(last_tok as usize);
-        let query: larql_inference::ndarray::Array1<f32> =
+        let query: larql_vindex::ndarray::Array1<f32> =
             embed_row.mapv(|v| v * embed_scale);
 
         let all_layers = index.loaded_layers();
@@ -123,10 +123,10 @@ impl Session {
             )));
         }
 
-        let mut cb = larql_inference::vector_index::SilentLoadCallbacks;
+        let mut cb = larql_vindex::SilentLoadCallbacks;
         let weights = larql_inference::load_model_weights_from_vindex(path, &mut cb)
             .map_err(|e| LqlError::Execution(format!("failed to load model weights: {e}")))?;
-        let tokenizer = larql_inference::load_vindex_tokenizer(path)
+        let tokenizer = larql_vindex::load_vindex_tokenizer(path)
             .map_err(|e| LqlError::Execution(format!("failed to load tokenizer: {e}")))?;
 
         let encoding = tokenizer
@@ -134,7 +134,7 @@ impl Session {
             .map_err(|e| LqlError::Execution(format!("tokenize error: {e}")))?;
         let token_ids: Vec<u32> = encoding.get_ids().to_vec();
 
-        let walk_ffn = larql_inference::vector_index::WalkFfn::new(&weights, index, 10);
+        let walk_ffn = larql_inference::vindex::WalkFfn::new(&weights, index, 10);
         let start = std::time::Instant::now();
         let result = larql_inference::predict_with_ffn(
             &weights,
@@ -223,9 +223,9 @@ impl Session {
     ) -> Result<Vec<String>, LqlError> {
         let (path, _config, index) = self.require_vindex()?;
 
-        let (embed, embed_scale) = larql_inference::load_vindex_embeddings(path)
+        let (embed, embed_scale) = larql_vindex::load_vindex_embeddings(path)
             .map_err(|e| LqlError::Execution(format!("failed to load embeddings: {e}")))?;
-        let tokenizer = larql_inference::load_vindex_tokenizer(path)
+        let tokenizer = larql_vindex::load_vindex_tokenizer(path)
             .map_err(|e| LqlError::Execution(format!("failed to load tokenizer: {e}")))?;
 
         let encoding = tokenizer
@@ -242,7 +242,7 @@ impl Session {
             let tok = token_ids[0];
             embed.row(tok as usize).mapv(|v| v * embed_scale)
         } else {
-            let mut avg = larql_inference::ndarray::Array1::<f32>::zeros(hidden);
+            let mut avg = larql_vindex::ndarray::Array1::<f32>::zeros(hidden);
             for &tok in &token_ids {
                 let row = embed.row(tok as usize);
                 avg += &row.mapv(|v| v * embed_scale);
@@ -616,9 +616,9 @@ impl Session {
     ) -> Result<Vec<String>, LqlError> {
         let (path, _config, index) = self.require_vindex()?;
 
-        let (embed, embed_scale) = larql_inference::load_vindex_embeddings(path)
+        let (embed, embed_scale) = larql_vindex::load_vindex_embeddings(path)
             .map_err(|e| LqlError::Execution(format!("failed to load embeddings: {e}")))?;
-        let tokenizer = larql_inference::load_vindex_tokenizer(path)
+        let tokenizer = larql_vindex::load_vindex_tokenizer(path)
             .map_err(|e| LqlError::Execution(format!("failed to load tokenizer: {e}")))?;
 
         let encoding = tokenizer
@@ -632,7 +632,7 @@ impl Session {
 
         let last_tok = *token_ids.last().unwrap();
         let embed_row = embed.row(last_tok as usize);
-        let query: larql_inference::ndarray::Array1<f32> =
+        let query: larql_vindex::ndarray::Array1<f32> =
             embed_row.mapv(|v| v * embed_scale);
 
         let all_layers = index.loaded_layers();
@@ -684,10 +684,10 @@ impl Session {
             ));
         }
 
-        let mut cb = larql_inference::vector_index::SilentLoadCallbacks;
+        let mut cb = larql_vindex::SilentLoadCallbacks;
         let weights = larql_inference::load_model_weights_from_vindex(path, &mut cb)
             .map_err(|e| LqlError::Execution(format!("failed to load model weights: {e}")))?;
-        let tokenizer = larql_inference::load_vindex_tokenizer(path)
+        let tokenizer = larql_vindex::load_vindex_tokenizer(path)
             .map_err(|e| LqlError::Execution(format!("failed to load tokenizer: {e}")))?;
 
         let encoding = tokenizer
@@ -695,7 +695,7 @@ impl Session {
             .map_err(|e| LqlError::Execution(format!("tokenize error: {e}")))?;
         let token_ids: Vec<u32> = encoding.get_ids().to_vec();
 
-        let walk_ffn = larql_inference::vector_index::WalkFfn::new(&weights, index, 10);
+        let walk_ffn = larql_inference::vindex::WalkFfn::new(&weights, index, 10);
         let start = std::time::Instant::now();
         let result = larql_inference::predict_with_ffn(
             &weights, &tokenizer, &token_ids, top_k, &walk_ffn,

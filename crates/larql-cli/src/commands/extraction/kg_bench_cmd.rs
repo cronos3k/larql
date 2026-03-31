@@ -2,9 +2,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use clap::Args;
-use larql_inference::{
-    load_feature_labels, GateIndex, InferenceModel,
-};
+use larql_vindex::load_feature_labels;
+use larql_inference::{GateIndex, InferenceModel};
 
 #[derive(Args)]
 pub struct KgBenchArgs {

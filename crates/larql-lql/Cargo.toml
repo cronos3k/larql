@@ -10,6 +10,7 @@ description = "LQL parser, executor, and REPL for LARQL"
 larql-core = { path = "../larql-core" }
 larql-inference = { path = "../larql-inference" }
 larql-models = { path = "../larql-models" }
+larql-vindex = { path = "../larql-vindex" }
 rustyline = "15"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

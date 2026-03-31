@@ -214,7 +214,7 @@ impl Session {
                 if path.is_dir() {
                     let index_json = path.join("index.json");
                     if index_json.exists() {
-                        if let Ok(config) = larql_inference::load_vindex_config(&path) {
+                        if let Ok(config) = larql_vindex::load_vindex_config(&path) {
                             let size = dir_size(&path);
                             out.push(format!(
                                 "{:<35} {:>10} {:>8} {:>12}",

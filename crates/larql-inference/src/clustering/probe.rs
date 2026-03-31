@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use ndarray::Array1;
 
-use crate::vindex::index::VectorIndex;
+use larql_vindex::VectorIndex;
 
 /// Result of probing: maps (layer, feature) → list of entity names that activate it.
 pub struct ProbeResult {

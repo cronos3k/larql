@@ -22,8 +22,8 @@ pub(crate) enum Backend {
     /// Pre-extracted vindex — fast, supports mutation.
     Vindex {
         path: PathBuf,
-        config: larql_inference::VindexConfig,
-        index: larql_inference::VectorIndex,
+        config: larql_vindex::VindexConfig,
+        index: larql_vindex::VectorIndex,
         relation_classifier: Option<RelationClassifier>,
     },
     /// No backend loaded.
@@ -102,7 +102,7 @@ impl Session {
 
     pub(crate) fn require_vindex(
         &self,
-    ) -> Result<(&Path, &larql_inference::VindexConfig, &larql_inference::VectorIndex), LqlError>
+    ) -> Result<(&Path, &larql_vindex::VindexConfig, &larql_vindex::VectorIndex), LqlError>
     {
         match &self.backend {
             Backend::Vindex {

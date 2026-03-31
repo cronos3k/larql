@@ -5,7 +5,8 @@ use std::time::Instant;
 use clap::Args;
 use larql_inference::ndarray::{self, Array2};
 use larql_inference::tokenizers;
-use larql_inference::{load_feature_labels, InferenceModel};
+use larql_vindex::load_feature_labels;
+use larql_inference::InferenceModel;
 
 #[derive(Args)]
 pub struct OvGateArgs {

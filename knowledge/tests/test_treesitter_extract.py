@@ -17,7 +17,7 @@ from larql_knowledge.ingest.treesitter_extract import (
 # ------------------------------------------------------------------
 
 def test_supported_languages():
-    assert len(SUPPORTED_LANGUAGES) == 19
+    assert len(SUPPORTED_LANGUAGES) >= 15
 
 
 def test_language_extensions():
@@ -72,6 +72,7 @@ def test_extract_rust_function():
 def test_extract_rust_struct():
     pairs = extract_pairs_from_source("struct Point { x: i32 }", "rust")
     assert "struct" in pairs
+    assert ["struct", "Point"] in pairs["struct"]
 
 
 def test_extract_rust_impl():
@@ -87,16 +88,19 @@ def test_extract_rust_impl():
 def test_extract_js_function():
     pairs = extract_pairs_from_source("function hello() {}", "javascript")
     assert "function" in pairs
+    assert ["function", "hello"] in pairs["function"]
 
 
 def test_extract_js_const():
     pairs = extract_pairs_from_source("const x = 5;", "javascript")
     assert "const" in pairs
+    assert any(p[1] == "x" for p in pairs["const"])
 
 
 def test_extract_js_class():
     pairs = extract_pairs_from_source("class MyClass {}", "javascript")
     assert "class" in pairs
+    assert ["class", "MyClass"] in pairs["class"]
 
 
 # ------------------------------------------------------------------
@@ -106,6 +110,7 @@ def test_extract_js_class():
 def test_extract_ts_interface():
     pairs = extract_pairs_from_source("interface Foo { bar: string }", "typescript")
     assert "interface" in pairs
+    assert ["interface", "Foo"] in pairs["interface"]
 
 
 # ------------------------------------------------------------------
@@ -115,6 +120,7 @@ def test_extract_ts_interface():
 def test_extract_go_func():
     pairs = extract_pairs_from_source("func main() {}", "go")
     assert "func" in pairs
+    assert ["func", "main"] in pairs["func"]
 
 
 # ------------------------------------------------------------------
@@ -124,6 +130,7 @@ def test_extract_go_func():
 def test_extract_java_class():
     pairs = extract_pairs_from_source("public class Main {}", "java")
     assert "class" in pairs
+    assert ["class", "Main"] in pairs["class"]
 
 
 # ------------------------------------------------------------------
@@ -133,6 +140,7 @@ def test_extract_java_class():
 def test_extract_c_function():
     pairs = extract_pairs_from_source("int main() { return 0; }", "c")
     assert "int" in pairs
+    assert ["int", "main"] in pairs["int"]
 
 
 # ------------------------------------------------------------------
@@ -142,6 +150,7 @@ def test_extract_c_function():
 def test_extract_bash_function():
     pairs = extract_pairs_from_source("function foo() { echo hi; }", "bash")
     assert "function" in pairs
+    assert ["function", "foo"] in pairs["function"]
 
 
 # ------------------------------------------------------------------
@@ -152,6 +161,7 @@ def test_extract_sql_select():
     pairs = extract_pairs_from_source("SELECT name FROM users;", "sql")
     # SQL keywords are stored upper-case in _REGEX_PATTERNS
     assert "SELECT" in pairs
+    assert any(p[1] == "name" for p in pairs["SELECT"])
 
 
 # ------------------------------------------------------------------

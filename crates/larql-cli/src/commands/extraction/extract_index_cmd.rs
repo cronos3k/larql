@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use clap::Args;
 use indicatif::{ProgressBar, ProgressStyle};
-use larql_inference::vector_index::{IndexBuildCallbacks, VectorIndex};
+use larql_inference::vindex::IndexBuildCallbacks;
 use larql_inference::{write_model_weights, InferenceModel};
 
 #[derive(Args)]
@@ -110,7 +110,7 @@ pub fn run(args: ExtractIndexArgs) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Building vindex from vectors: {}", vectors_dir.display());
         eprintln!("Output: {}", args.output.display());
 
-        VectorIndex::build_vindex_from_vectors(vectors_dir, &args.output, &mut callbacks)?;
+        larql_inference::vindex::build_vindex_from_vectors(vectors_dir, &args.output, &mut callbacks)?;
 
         if args.include_weights {
             // Need model for weights even when building from vectors
@@ -157,7 +157,7 @@ pub fn run(args: ExtractIndexArgs) -> Result<(), Box<dyn std::error::Error>> {
             if has_gate && has_embed && has_down {
                 eprintln!("  Resuming: gate_vectors, embeddings, down_meta exist — skipping");
                 // Just write index.json, tokenizer, clustering, and optionally weights
-                VectorIndex::build_vindex_resume(
+                larql_inference::vindex::build_vindex_resume(
                     model.weights(),
                     model.tokenizer(),
                     model_name,
@@ -166,7 +166,7 @@ pub fn run(args: ExtractIndexArgs) -> Result<(), Box<dyn std::error::Error>> {
                 )?;
             } else {
                 eprintln!("  Resume: missing core files — full rebuild");
-                VectorIndex::build_vindex(
+                larql_inference::vindex::build_vindex(
                     model.weights(),
                     model.tokenizer(),
                     model_name,
@@ -182,7 +182,7 @@ pub fn run(args: ExtractIndexArgs) -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("  Resuming: model_weights.bin exists — skipping");
             }
         } else {
-            VectorIndex::build_vindex(
+            larql_inference::vindex::build_vindex(
                 model.weights(),
                 model.tokenizer(),
                 model_name,
