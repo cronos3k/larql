@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fast edge discovery: batch cosine similarity in NumPy.
 
-Reads gate/down/embedding NDJSON files directly. No SurrealDB needed.
+Reads gate/down/embedding NDJSON files directly.
 All 34 layers in under an hour.
 
 Usage:

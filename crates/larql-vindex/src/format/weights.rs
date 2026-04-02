@@ -2,11 +2,14 @@
 //!
 //! Split format (v2): separate files per component, no duplication.
 //!   attn_weights.bin  — Q, K, V, O per layer
-//!   ffn_weights.bin   — up + down per layer (gate is in gate_vectors.bin)
-//!   norms.bin         — all LayerNorm vectors
+//!   up_weights.bin    — FFN up projections (gate is in gate_vectors.bin)
+//!   down_weights.bin  — FFN down projections
+//!   norms.bin         — all LayerNorm/RMSNorm vectors
 //!   lm_head.bin       — output projection
 //!
-//! Legacy format (v1): single model_weights.bin with weight_manifest.json.
+//! Both the build path (full ModelWeights in RAM) and the streaming path
+//! (mmap'd safetensors) write through the same `write_model_weights` function
+//! via the `WeightSource` trait.
 
 use std::collections::HashMap;
 use std::io::{BufWriter, Write};
@@ -16,11 +19,12 @@ use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 
 use crate::error::VindexError;
-use larql_models::ModelWeights;
-
 use crate::extract::callbacks::IndexBuildCallbacks;
 use crate::config::{VindexConfig, VindexModelConfig};
-use crate::index::core::IndexLoadCallbacks; use crate::format::load::load_vindex_config;
+use crate::index::core::IndexLoadCallbacks;
+use crate::format::load::load_vindex_config;
+
+use larql_models::ModelWeights;
 
 #[derive(Serialize, Deserialize)]
 struct WeightEntry {
@@ -33,25 +37,158 @@ struct WeightEntry {
     file: String,
 }
 
-/// Write model weights to split component files (v2 format).
+// ── WeightSource trait ──
+
+/// Abstraction over where model weights come from.
 ///
-/// Creates separate files for attention, FFN (up+down only), norms, and lm_head.
-/// Gate weights are NOT written — they're already in gate_vectors.bin.
+/// Implemented by `ModelWeights` (build path — everything in RAM)
+/// and `StreamingWeights` (streaming path — mmap'd safetensors on demand).
+pub trait WeightSource {
+    /// Get a 2D weight tensor by normalized key. Returns (data, rows, cols).
+    fn get_tensor(&self, key: &str) -> Option<(Vec<f32>, usize, usize)>;
+
+    /// Get a 1D vector (norm weights, biases) by normalized key.
+    fn get_vector(&self, key: &str) -> Option<Vec<f32>>;
+
+    /// Architecture handle for key generation.
+    fn arch(&self) -> &dyn larql_models::ModelArchitecture;
+
+    /// Number of layers.
+    fn num_layers(&self) -> usize;
+
+    /// LM head matrix. Returns (data, rows, cols).
+    fn lm_head(&self) -> Option<(Vec<f32>, usize, usize)>;
+
+    /// All 1D vector names (for norms).
+    fn vector_names(&self) -> Vec<String>;
+}
+
+// ── ModelWeights implementation ──
+
+impl WeightSource for ModelWeights {
+    fn get_tensor(&self, key: &str) -> Option<(Vec<f32>, usize, usize)> {
+        let t = self.tensors.get(key)?;
+        Some((t.as_slice()?.to_vec(), t.shape()[0], t.shape()[1]))
+    }
+
+    fn get_vector(&self, key: &str) -> Option<Vec<f32>> {
+        self.vectors.get(key).cloned()
+    }
+
+    fn arch(&self) -> &dyn larql_models::ModelArchitecture {
+        &*self.arch
+    }
+
+    fn num_layers(&self) -> usize {
+        self.num_layers
+    }
+
+    fn lm_head(&self) -> Option<(Vec<f32>, usize, usize)> {
+        let h = &self.lm_head;
+        Some((h.as_slice()?.to_vec(), h.shape()[0], h.shape()[1]))
+    }
+
+    fn vector_names(&self) -> Vec<String> {
+        self.vectors.keys().cloned().collect()
+    }
+}
+
+// ── Streaming implementation ──
+
+/// Weight source backed by mmap'd safetensors files.
+/// Tensors are deserialized on demand — peak memory is one tensor at a time.
+pub struct StreamingWeights<'a> {
+    pub shard_mmaps: &'a [&'a [u8]],
+    pub tensor_index: &'a HashMap<String, (usize, String)>,
+    pub arch: &'a dyn larql_models::ModelArchitecture,
+    pub num_layers: usize,
+}
+
+impl<'a> StreamingWeights<'a> {
+    fn read_tensor_raw(&self, key: &str) -> Option<(Vec<f32>, Vec<usize>)> {
+        let (shard_idx, tensor_name) = self.tensor_index.get(key)?;
+        let st = safetensors::SafeTensors::deserialize(self.shard_mmaps[*shard_idx]).ok()?;
+        let view = st.tensor(tensor_name).ok()?;
+        let shape = view.shape().to_vec();
+
+        let data = match view.dtype() {
+            safetensors::Dtype::F32 => {
+                view.data().chunks_exact(4)
+                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                    .collect()
+            }
+            safetensors::Dtype::F16 => crate::format::quant::half::decode_f16(view.data()),
+            safetensors::Dtype::BF16 => crate::format::quant::half::decode_bf16(view.data()),
+            _ => return None,
+        };
+        Some((data, shape))
+    }
+}
+
+impl<'a> WeightSource for StreamingWeights<'a> {
+    fn get_tensor(&self, key: &str) -> Option<(Vec<f32>, usize, usize)> {
+        let (data, shape) = self.read_tensor_raw(key)?;
+        if shape.len() != 2 { return None; }
+        Some((data, shape[0], shape[1]))
+    }
+
+    fn get_vector(&self, key: &str) -> Option<Vec<f32>> {
+        let (data, shape) = self.read_tensor_raw(key)?;
+        if shape.len() != 1 { return None; }
+        Some(data)
+    }
+
+    fn arch(&self) -> &dyn larql_models::ModelArchitecture {
+        self.arch
+    }
+
+    fn num_layers(&self) -> usize {
+        self.num_layers
+    }
+
+    fn lm_head(&self) -> Option<(Vec<f32>, usize, usize)> {
+        // Try common lm_head key names
+        for key in &["lm_head.weight", "output.weight"] {
+            if let Some(t) = self.get_tensor(key) {
+                return Some(t);
+            }
+        }
+        None
+    }
+
+    fn vector_names(&self) -> Vec<String> {
+        // Return all 1D tensor keys (norms, biases)
+        let mut names = Vec::new();
+        for key in self.tensor_index.keys() {
+            if key.contains("layernorm") || key.contains("norm") || key.contains("bias") {
+                names.push(key.clone());
+            }
+        }
+        names.sort();
+        names
+    }
+}
+
+// ── Write model weights (generic over source) ──
+
+/// Write model weights to split component files.
+///
+/// Works with any `WeightSource`: ModelWeights (build path) or
+/// StreamingWeights (streaming path from mmap'd safetensors).
 pub fn write_model_weights(
-    weights: &ModelWeights,
+    source: &dyn WeightSource,
     dir: &Path,
     callbacks: &mut dyn IndexBuildCallbacks,
 ) -> Result<(), VindexError> {
     callbacks.on_stage("model_weights");
     let start = std::time::Instant::now();
 
-    // Read dtype from config if available, default to F32
-    let dtype = crate::format::load::load_vindex_config(dir)
+    let dtype = load_vindex_config(dir)
         .map(|c| c.dtype)
         .unwrap_or(crate::config::dtype::StorageDtype::F32);
 
-    let arch = &*weights.arch;
-    let num_layers = weights.num_layers;
+    let arch = source.arch();
+    let num_layers = source.num_layers();
     let mut entries: Vec<WeightEntry> = Vec::new();
 
     // ── Attention weights ──
@@ -67,29 +204,44 @@ pub fn write_model_weights(
             arch.attn_v_key(layer),
             arch.attn_o_key(layer),
         ] {
-            if let Some(tensor) = weights.tensors.get(key) {
-                let len = write_tensor(&mut attn_file, tensor, dtype)?;
+            if let Some((data, rows, cols)) = source.get_tensor(key) {
+                let len = write_floats(&mut attn_file, &data, dtype)?;
                 entries.push(WeightEntry {
-                    key: key.clone(),
-                    kind: "tensor".into(),
-                    shape: vec![tensor.shape()[0], tensor.shape()[1]],
-                    offset: attn_offset,
-                    length: len,
+                    key: key.clone(), kind: "tensor".into(),
+                    shape: vec![rows, cols],
+                    offset: attn_offset, length: len,
                     file: "attn_weights.bin".into(),
                 });
                 attn_offset += len;
             }
         }
+
+        // QK norms (1D vectors, stored alongside attention)
+        for key_opt in &[arch.attn_q_norm_key(layer), arch.attn_k_norm_key(layer)] {
+            if let Some(key) = key_opt {
+                if let Some(data) = source.get_vector(key) {
+                    let bytes = crate::config::dtype::encode_floats(&data, dtype);
+                    attn_file.write_all(&bytes)?;
+                    entries.push(WeightEntry {
+                        key: key.clone(), kind: "vector".into(),
+                        shape: vec![data.len()],
+                        offset: attn_offset, length: bytes.len() as u64,
+                        file: "attn_weights.bin".into(),
+                    });
+                    attn_offset += bytes.len() as u64;
+                }
+            }
+        }
+
         callbacks.on_layer_done("attn_weights", layer, 0.0);
     }
     attn_file.flush()?;
 
-    // ── W_up weights (gate is in gate_vectors.bin, not duplicated) ──
+    // ── FFN up + down weights (gate is in gate_vectors.bin) ──
     let up_path = dir.join("up_weights.bin");
     let mut up_file = BufWriter::new(std::fs::File::create(&up_path)?);
     let mut up_offset: u64 = 0;
 
-    // ── W_down weights (full vectors for COMPILE) ──
     let down_path = dir.join("down_weights.bin");
     let mut down_file = BufWriter::new(std::fs::File::create(&down_path)?);
     let mut down_offset: u64 = 0;
@@ -100,11 +252,11 @@ pub fn write_model_weights(
         if arch.is_moe() {
             for expert in 0..arch.num_experts() {
                 if let Some(key) = arch.expert_ffn_up_key(layer, expert) {
-                    if let Some(tensor) = weights.tensors.get(&key) {
-                        let len = write_tensor(&mut up_file, tensor, dtype)?;
+                    if let Some((data, rows, cols)) = source.get_tensor(&key) {
+                        let len = write_floats(&mut up_file, &data, dtype)?;
                         entries.push(WeightEntry {
                             key, kind: "tensor".into(),
-                            shape: vec![tensor.shape()[0], tensor.shape()[1]],
+                            shape: vec![rows, cols],
                             offset: up_offset, length: len,
                             file: "up_weights.bin".into(),
                         });
@@ -112,11 +264,11 @@ pub fn write_model_weights(
                     }
                 }
                 if let Some(key) = arch.expert_ffn_down_key(layer, expert) {
-                    if let Some(tensor) = weights.tensors.get(&key) {
-                        let len = write_tensor(&mut down_file, tensor, dtype)?;
+                    if let Some((data, rows, cols)) = source.get_tensor(&key) {
+                        let len = write_floats(&mut down_file, &data, dtype)?;
                         entries.push(WeightEntry {
                             key, kind: "tensor".into(),
-                            shape: vec![tensor.shape()[0], tensor.shape()[1]],
+                            shape: vec![rows, cols],
                             offset: down_offset, length: len,
                             file: "down_weights.bin".into(),
                         });
@@ -124,13 +276,12 @@ pub fn write_model_weights(
                     }
                 }
             }
-            // MoE router weights (in up_weights alongside up projections)
             if let Some(key) = arch.moe_router_key(layer) {
-                if let Some(tensor) = weights.tensors.get(&key) {
-                    let len = write_tensor(&mut up_file, tensor, dtype)?;
+                if let Some((data, rows, cols)) = source.get_tensor(&key) {
+                    let len = write_floats(&mut up_file, &data, dtype)?;
                     entries.push(WeightEntry {
                         key, kind: "tensor".into(),
-                        shape: vec![tensor.shape()[0], tensor.shape()[1]],
+                        shape: vec![rows, cols],
                         offset: up_offset, length: len,
                         file: "up_weights.bin".into(),
                     });
@@ -138,13 +289,12 @@ pub fn write_model_weights(
                 }
             }
         } else {
-            // Dense: separate up and down files
             let up_key = arch.ffn_up_key(layer);
-            if let Some(tensor) = weights.tensors.get(&up_key) {
-                let len = write_tensor(&mut up_file, tensor, dtype)?;
+            if let Some((data, rows, cols)) = source.get_tensor(&up_key) {
+                let len = write_floats(&mut up_file, &data, dtype)?;
                 entries.push(WeightEntry {
                     key: up_key, kind: "tensor".into(),
-                    shape: vec![tensor.shape()[0], tensor.shape()[1]],
+                    shape: vec![rows, cols],
                     offset: up_offset, length: len,
                     file: "up_weights.bin".into(),
                 });
@@ -152,11 +302,11 @@ pub fn write_model_weights(
             }
 
             let down_key = arch.ffn_down_key(layer);
-            if let Some(tensor) = weights.tensors.get(&down_key) {
-                let len = write_tensor(&mut down_file, tensor, dtype)?;
+            if let Some((data, rows, cols)) = source.get_tensor(&down_key) {
+                let len = write_floats(&mut down_file, &data, dtype)?;
                 entries.push(WeightEntry {
                     key: down_key, kind: "tensor".into(),
-                    shape: vec![tensor.shape()[0], tensor.shape()[1]],
+                    shape: vec![rows, cols],
                     offset: down_offset, length: len,
                     file: "down_weights.bin".into(),
                 });
@@ -174,34 +324,54 @@ pub fn write_model_weights(
     let mut norms_file = BufWriter::new(std::fs::File::create(&norms_path)?);
     let mut norms_offset: u64 = 0;
 
-    for (key, vec) in &weights.vectors {
-        let bytes = crate::config::dtype::encode_floats(vec, dtype);
+    // Per-layer norms
+    for layer in 0..num_layers {
+        let norm_keys: Vec<String> = [
+            Some(arch.input_layernorm_key(layer)),
+            Some(arch.post_attention_layernorm_key(layer)),
+            arch.pre_feedforward_layernorm_key(layer),
+            arch.post_feedforward_layernorm_key(layer),
+        ].into_iter().flatten().collect();
+
+        for key in norm_keys {
+            if let Some(data) = source.get_vector(&key) {
+                let bytes = crate::config::dtype::encode_floats(&data, dtype);
+                norms_file.write_all(&bytes)?;
+                entries.push(WeightEntry {
+                    key, kind: "vector".into(),
+                    shape: vec![data.len()],
+                    offset: norms_offset, length: bytes.len() as u64,
+                    file: "norms.bin".into(),
+                });
+                norms_offset += bytes.len() as u64;
+            }
+        }
+    }
+
+    // Final norm (model.norm.weight)
+    if let Some(data) = source.get_vector("norm.weight") {
+        let bytes = crate::config::dtype::encode_floats(&data, dtype);
         norms_file.write_all(&bytes)?;
         entries.push(WeightEntry {
-            key: key.clone(),
-            kind: "vector".into(),
-            shape: vec![vec.len()],
-            offset: norms_offset,
-            length: bytes.len() as u64,
+            key: "norm.weight".into(), kind: "vector".into(),
+            shape: vec![data.len()],
+            offset: norms_offset, length: bytes.len() as u64,
             file: "norms.bin".into(),
         });
-        norms_offset += bytes.len() as u64;
     }
     norms_file.flush()?;
 
     // ── LM Head ──
-    let lm_head_path = dir.join("lm_head.bin");
-    let lm_data = weights.lm_head.as_slice().unwrap();
-    let lm_bytes = crate::config::dtype::encode_floats(lm_data, dtype);
-    std::fs::write(&lm_head_path, &lm_bytes)?;
-    entries.push(WeightEntry {
-        key: "lm_head.weight".into(),
-        kind: "tensor".into(),
-        shape: vec![weights.lm_head.shape()[0], weights.lm_head.shape()[1]],
-        offset: 0,
-        length: lm_bytes.len() as u64,
-        file: "lm_head.bin".into(),
-    });
+    if let Some((data, rows, cols)) = source.lm_head() {
+        let lm_bytes = crate::config::dtype::encode_floats(&data, dtype);
+        std::fs::write(dir.join("lm_head.bin"), &lm_bytes)?;
+        entries.push(WeightEntry {
+            key: "lm_head.weight".into(), kind: "tensor".into(),
+            shape: vec![rows, cols],
+            offset: 0, length: lm_bytes.len() as u64,
+            file: "lm_head.bin".into(),
+        });
+    }
 
     // ── Manifest ──
     let manifest_json = serde_json::to_string_pretty(&entries)
@@ -215,18 +385,20 @@ pub fn write_model_weights(
         .map_err(|e| VindexError::Parse(e.to_string()))?;
 
     config.has_model_weights = true;
+
+    let cfg = arch.config();
     config.model_config = Some(VindexModelConfig {
-        model_type: weights.arch.config().model_type.clone(),
-        head_dim: weights.head_dim,
-        num_q_heads: weights.num_q_heads,
-        num_kv_heads: weights.num_kv_heads,
-        rope_base: weights.rope_base,
-        sliding_window: weights.arch.config().sliding_window,
-        moe: if weights.arch.is_moe() {
+        model_type: cfg.model_type.clone(),
+        head_dim: cfg.head_dim,
+        num_q_heads: cfg.num_q_heads,
+        num_kv_heads: cfg.num_kv_heads,
+        rope_base: cfg.rope_base,
+        sliding_window: cfg.sliding_window,
+        moe: if arch.is_moe() {
             Some(crate::MoeConfig {
-                num_experts: weights.arch.num_experts(),
-                top_k: weights.arch.num_experts_per_token(),
-                shared_expert: weights.arch.num_shared_experts() > 0,
+                num_experts: arch.num_experts(),
+                top_k: arch.num_experts_per_token(),
+                shared_expert: arch.num_shared_experts() > 0,
                 router_type: "top_k_softmax".into(),
             })
         } else {
@@ -242,8 +414,7 @@ pub fn write_model_weights(
     Ok(())
 }
 
-fn write_tensor(w: &mut BufWriter<std::fs::File>, tensor: &Array2<f32>, dtype: crate::config::dtype::StorageDtype) -> Result<u64, VindexError> {
-    let data = tensor.as_slice().unwrap();
+fn write_floats(w: &mut impl Write, data: &[f32], dtype: crate::config::dtype::StorageDtype) -> Result<u64, VindexError> {
     let bytes = crate::config::dtype::encode_floats(data, dtype);
     w.write_all(&bytes)?;
     Ok(bytes.len() as u64)
@@ -260,7 +431,7 @@ pub fn load_model_weights(
 
     if !config.has_model_weights {
         return Err(VindexError::Parse(
-            "vindex does not contain model weights. Rebuild with: larql extract-index <model> -o <vindex> --include-weights".into(),
+            "vindex does not contain model weights. Rebuild with: larql extract-index <model> -o <vindex> --level all".into(),
         ));
     }
 
@@ -268,7 +439,6 @@ pub fn load_model_weights(
         VindexError::Parse("vindex missing model_config in index.json".into())
     })?;
 
-    // Reconstruct architecture from config
     let arch_json = serde_json::json!({
         "model_type": model_cfg.model_type,
         "hidden_size": config.hidden_size,
@@ -283,7 +453,6 @@ pub fn load_model_weights(
     });
     let arch = larql_models::detect_from_json(&arch_json);
 
-    // Load embeddings (mmap'd)
     callbacks.on_file_start("embeddings", &dir.join("embeddings.bin").display().to_string());
     let embed_file = std::fs::File::open(dir.join("embeddings.bin"))?;
     let embed_mmap = unsafe { memmap2::Mmap::map(&embed_file)? };
@@ -292,12 +461,9 @@ pub fn load_model_weights(
         .map_err(|e| VindexError::Parse(e.to_string()))?;
     callbacks.on_file_done("embeddings", config.vocab_size, 0.0);
 
-    // Load weight manifest
     let manifest_path = dir.join("weight_manifest.json");
     if !manifest_path.exists() {
-        return Err(VindexError::Parse(
-            "weight_manifest.json not found".into(),
-        ));
+        return Err(VindexError::Parse("weight_manifest.json not found".into()));
     }
 
     callbacks.on_file_start("model_weights", "weight_manifest.json");
@@ -305,20 +471,13 @@ pub fn load_model_weights(
     let entries: Vec<WeightEntry> = serde_json::from_str(&manifest_text)
         .map_err(|e| VindexError::Parse(e.to_string()))?;
 
-    // Cache mmap'd files to avoid re-mapping
     let mut mmap_cache: HashMap<String, memmap2::Mmap> = HashMap::new();
-
     let mut tensors: HashMap<String, Array2<f32>> = HashMap::new();
     let mut vectors: HashMap<String, Vec<f32>> = HashMap::new();
     let mut lm_head_loaded: Option<Array2<f32>> = None;
 
     for entry in &entries {
-        // Determine which file to read from
-        let filename = if entry.file.is_empty() {
-            "model_weights.bin".to_string() // legacy v1 format
-        } else {
-            entry.file.clone()
-        };
+        let filename = if entry.file.is_empty() { "model_weights.bin".to_string() } else { entry.file.clone() };
 
         if !mmap_cache.contains_key(&filename) {
             let fpath = dir.join(&filename);
@@ -334,28 +493,18 @@ pub fn load_model_weights(
             Some(m) => m.as_ref(),
             None => continue,
         };
-
-        if data.is_empty() {
-            continue;
-        }
+        if data.is_empty() { continue; }
 
         let byte_offset = entry.offset as usize;
         let byte_count = entry.length as usize;
-        if byte_offset + byte_count > data.len() {
-            continue;
-        }
+        if byte_offset + byte_count > data.len() { continue; }
         let raw_bytes = &data[byte_offset..byte_offset + byte_count];
         let floats = crate::config::dtype::decode_floats(raw_bytes, config.dtype);
-        let slice = &floats[..];
 
         match entry.kind.as_str() {
             "tensor" => {
-                let arr = Array2::from_shape_vec(
-                    (entry.shape[0], entry.shape[1]),
-                    slice.to_vec(),
-                )
-                .map_err(|e| VindexError::Parse(e.to_string()))?;
-
+                let arr = Array2::from_shape_vec((entry.shape[0], entry.shape[1]), floats)
+                    .map_err(|e| VindexError::Parse(e.to_string()))?;
                 if entry.key == "lm_head.weight" {
                     lm_head_loaded = Some(arr);
                 } else {
@@ -363,14 +512,13 @@ pub fn load_model_weights(
                 }
             }
             "vector" => {
-                vectors.insert(entry.key.clone(), slice.to_vec());
+                vectors.insert(entry.key.clone(), floats);
             }
             _ => {}
         }
     }
 
-    // Gate vectors: mmap gate_vectors.bin and inject into tensors
-    // (the forward pass needs them as tensors, but they're stored in the query index)
+    // Gate vectors from gate_vectors.bin
     let gate_file = std::fs::File::open(dir.join("gate_vectors.bin"))?;
     let gate_mmap = unsafe { memmap2::Mmap::map(&gate_file)? };
     let gate_floats = crate::config::dtype::decode_floats(&gate_mmap, config.dtype);
@@ -381,12 +529,9 @@ pub fn load_model_weights(
         if float_offset + float_count <= gate_floats.len() {
             let gate_data = &gate_floats[float_offset..float_offset + float_count];
             let gate_matrix = Array2::from_shape_vec(
-                (info.num_features, config.hidden_size),
-                gate_data.to_vec(),
-            )
-            .map_err(|e| VindexError::Parse(e.to_string()))?;
-            let gate_key = arch.ffn_gate_key(info.layer);
-            tensors.insert(gate_key, gate_matrix);
+                (info.num_features, config.hidden_size), gate_data.to_vec(),
+            ).map_err(|e| VindexError::Parse(e.to_string()))?;
+            tensors.insert(arch.ffn_gate_key(info.layer), gate_matrix);
         }
     }
 
@@ -396,10 +541,7 @@ pub fn load_model_weights(
     let lm_head = lm_head_loaded.unwrap_or_else(|| embed.clone());
 
     Ok(ModelWeights {
-        tensors,
-        vectors,
-        embed,
-        lm_head,
+        tensors, vectors, embed, lm_head,
         num_layers: cfg.num_layers,
         hidden_size: cfg.hidden_size,
         intermediate_size: cfg.intermediate_size,
@@ -415,14 +557,10 @@ pub fn load_model_weights(
 /// Find the tokenizer path near a model or vindex directory.
 pub fn find_tokenizer_path(dir: &Path) -> Option<std::path::PathBuf> {
     let p = dir.join("tokenizer.json");
-    if p.exists() {
-        return Some(p);
-    }
+    if p.exists() { return Some(p); }
     if let Some(parent) = dir.parent() {
         let p = parent.join("tokenizer.json");
-        if p.exists() {
-            return Some(p);
-        }
+        if p.exists() { return Some(p); }
     }
     None
 }

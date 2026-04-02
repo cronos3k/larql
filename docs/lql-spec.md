@@ -998,8 +998,11 @@ pub enum ExtractLevel {
 | Vindexfile | ✅ Done — declarative builds (FROM + PATCH + INSERT), `larql build` CLI |
 | USE REMOTE | ✅ Done — HTTP client to larql-server, all queries forwarded, local patch overlay |
 | `larql serve` | ✅ Done — HTTP/gRPC server, all endpoints, multi-model, per-session patches |
-| WeightBackend (USE MODEL) | 🔴 Planned — direct safetensors access without vindex extraction |
+| WeightBackend (USE MODEL) | ✅ Done — direct safetensors, INFER/EXPLAIN INFER/STATS; browse ops guide to EXTRACT |
 | GGUF output format | 🔴 Planned — COMPILE INTO MODEL FORMAT gguf |
+| MXFP4 browse quality | 🟡 Known limitation — gate KNN noisy for 4-bit quantized MoE; INFER works correctly |
+| Gated KNN for MoE | 🔴 Planned — use SiLU(gate)×up instead of raw gate dot product for MXFP4 models |
+| Residual-based DESCRIBE | 🔴 Planned — capture actual residuals for accurate MoE knowledge browse |
 
 ### 8.5 INSERT Semantics — How Edge Becomes Vector
 
@@ -1024,13 +1027,13 @@ The relation type determines which layer to write to. Probe data shows which lay
 4. ~~WALK / EXPLAIN WALK~~ — **done**
 5. ~~INFER / EXPLAIN INFER~~ — **done**
 6. ~~Label loading (probe + cluster)~~ — **done**
-7. DESCRIBE SYNTAX / ALL LAYERS — add layer band flags
-8. EXTRACT — wire to existing `extract-index` CLI
-9. W_up extraction — add to vindex (needed for COMPILE)
-10. INSERT — vector synthesis from edge semantics
-11. COMPILE — vindex → safetensors
-12. DIFF / DELETE / UPDATE / MERGE — round out mutation support
-13. WeightBackend (USE MODEL) — direct safetensors access
+7. ~~DESCRIBE SYNTAX / ALL LAYERS~~ — **done**
+8. ~~EXTRACT~~ — **done**
+9. ~~W_up extraction~~ — **done**
+10. ~~INSERT~~ — **done**
+11. ~~COMPILE~~ — **done**
+12. ~~DIFF / DELETE / UPDATE / MERGE~~ — **done**
+13. ~~WeightBackend (USE MODEL)~~ — **done**
 
 ---
 

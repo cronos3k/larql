@@ -36,8 +36,15 @@ CLI equivalent: `larql extract-index google/gemma-3-4b-it -o gemma3-4b.vindex --
 ### 2. Connect
 
 ```sql
+-- Use a pre-extracted vindex (fast, all operations)
 USE "gemma3-4b.vindex";
 STATS;
+
+-- Or point directly at model weights (no extraction needed)
+USE MODEL "google/gemma-3-4b-it";
+STATS;
+-- Supports: INFER, EXPLAIN INFER, STATS
+-- For WALK/DESCRIBE/SELECT/INSERT: extract into a vindex first
 ```
 
 ### 3. Browse knowledge
@@ -67,7 +74,8 @@ SELECT entity, target FROM EDGES WHERE relation = "capital" LIMIT 10;
 
 ### 4. Run inference
 
-Requires a vindex built with `WITH INFERENCE` or `WITH ALL`.
+Requires model weights: either a vindex built with `WITH INFERENCE` / `WITH ALL`,
+or a `USE MODEL` session (direct weight access).
 
 ```sql
 -- Next-token prediction with attention

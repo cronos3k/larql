@@ -214,6 +214,36 @@ pub fn build_vindex_streaming(
     gate_file.flush()?;
     callbacks.on_stage_done("gate_vectors", 0.0);
 
+    // ── 1b. Router weights (MoE models only) ──
+    if is_moe {
+        callbacks.on_stage("router_weights");
+        let router_path = output_dir.join("router_weights.bin");
+        let mut router_file = BufWriter::new(std::fs::File::create(&router_path)?);
+
+        for layer in 0..num_layers {
+            let router_key = arch.moe_router_key(layer)
+                .map(|k| normalize_key(&k, prefixes))
+                .unwrap_or_default();
+
+            if let Some(tensor) = get_tensor_f32(&shard_mmaps, &tensor_index, &router_key)? {
+                let data = tensor.as_slice().unwrap();
+                let bytes = crate::config::dtype::encode_floats(data, dtype);
+                router_file.write_all(&bytes)?;
+            }
+
+            // Also try router bias
+            let bias_key = router_key.replace(".weight", ".bias");
+            if let Some(tensor) = get_tensor_f32(&shard_mmaps, &tensor_index, &bias_key)? {
+                let data = tensor.as_slice().unwrap();
+                let bytes = crate::config::dtype::encode_floats(data, dtype);
+                // Write bias after weight for each layer
+                router_file.write_all(&bytes)?;
+            }
+        }
+        router_file.flush()?;
+        callbacks.on_stage_done("router_weights", 0.0);
+    }
+
     // ── 2. Embeddings ──
     callbacks.on_stage("embeddings");
     let embed_key = normalize_key(arch.embed_key(), prefixes);
@@ -392,6 +422,28 @@ pub fn build_vindex_streaming(
         }),
     };
 
+    // Write preliminary index.json (needed by write_model_weights which reads dtype from it)
+    let config_json = serde_json::to_string_pretty(&config)
+        .map_err(|e| VindexError::Parse(e.to_string()))?;
+    std::fs::write(output_dir.join("index.json"), config_json)?;
+
+    // ── 6. Model weights (if extract level requires them) ──
+    if extract_level != crate::ExtractLevel::Browse {
+        let shard_refs: Vec<&[u8]> = shard_mmaps.iter().map(|s| s.mmap.as_ref()).collect();
+        let streaming_source = crate::format::weights::StreamingWeights {
+            shard_mmaps: &shard_refs,
+            tensor_index: &tensor_index,
+            arch: &*arch,
+            num_layers,
+        };
+        crate::format::weights::write_model_weights(&streaming_source, output_dir, callbacks)?;
+        // write_model_weights updates index.json with has_model_weights=true
+    }
+
+    // Final checksums
+    let config_text = std::fs::read_to_string(output_dir.join("index.json"))?;
+    let mut config: VindexConfig = serde_json::from_str(&config_text)
+        .map_err(|e| VindexError::Parse(e.to_string()))?;
     config.checksums = crate::format::checksums::compute_checksums(output_dir).ok();
     let config_json = serde_json::to_string_pretty(&config)
         .map_err(|e| VindexError::Parse(e.to_string()))?;

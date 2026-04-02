@@ -3,16 +3,17 @@ requires = ["maturin>=1.7"]
 build-backend = "maturin"
 
 [project]
-name = "chuk-larql-native"
+name = "larql"
 version = "0.1.0"
-description = "Rust-accelerated LARQL knowledge graph engine"
+description = "Python bindings for LARQL — the queryable model format"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 authors = [
     { name = "Chris Hay", email = "chrishayuk@googlemail.com" },
 ]
-keywords = ["knowledge-graph", "llm", "interpretability"]
+keywords = ["knowledge-graph", "llm", "interpretability", "vindex", "mechanistic-interpretability"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "_larql_core"
+module-name = "larql._native"
+python-source = "python"

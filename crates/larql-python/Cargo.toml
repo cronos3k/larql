@@ -4,14 +4,19 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Python bindings for LARQL knowledge graph engine"
+description = "Python bindings for LARQL knowledge graph engine and vindex"
 
 [lib]
-name = "_larql_core"
+name = "_native"
 crate-type = ["cdylib"]
 
 [dependencies]
 larql-core = { path = "../larql-core" }
 larql-inference = { path = "../larql-inference" }
-pyo3 = { version = "0.23", features = ["extension-module"] }
+larql-models = { path = "../larql-models" }
+larql-vindex = { path = "../larql-vindex" }
+larql-lql = { path = "../larql-lql" }
+pyo3 = { version = "0.24", features = ["extension-module"] }
+numpy = "0.24"
+ndarray = "0.16"
 serde_json = { workspace = true }

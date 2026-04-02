@@ -11,7 +11,7 @@ and can be swapped into the forward pass.
 | [SparseFfn](sparse.md) | `ffn/sparse.rs` | Gate matmul + top-K sparse up/down | Sparse inference research |
 | LayerFfnRouter | `ffn/mod.rs` | Per-layer backend selection | Hybrid strategies |
 | HighwayFfn | `ffn/mod.rs` | Returns zeros (skip FFN) | Layer skipping experiments |
-| [WalkFfn](walk.md) | `vector_index.rs` | Delegates to WeightFfn + vindex trace | **INFER with interpretability** |
+| [WalkFfn](walk.md) | `vindex/walk_ffn.rs` | Gate KNN + sparse FFN + trace | **INFER with interpretability** |
 
 ## Experimental Backends
 
@@ -32,9 +32,9 @@ The gate matmul (`residual @ gate.T`) is **irreducible** for novel residuals. No
 index, clustering, or proxy can predict which features activate without seeing the actual
 post-attention residual. Every approach that skips the gate matmul selects the wrong features.
 
-The production path: **WalkFfn** delegates to **WeightFfn** (exact, architecture-correct) and
-adds the vindex interpretability layer (feature names, gate scores, down projections) on top.
-Same answer as dense, but every feature is visible.
+The production path: **WalkFfn** uses vindex gate KNN for feature selection, then runs sparse
+FFN on only the selected features. Accepts any `GateIndex` implementor (`VectorIndex` or
+`PatchedVindex`), so INSERT/DELETE/UPDATE to the vindex immediately affect inference output.
 
 ## Bottleneck Analysis
 

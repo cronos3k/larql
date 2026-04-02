@@ -1,6 +1,7 @@
 //! Shared CLI utilities.
 
 /// Simple base64 encoder for Basic auth (avoids adding a base64 crate).
+#[allow(dead_code)]
 pub fn base64_encode(input: &str) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let bytes = input.as_bytes();

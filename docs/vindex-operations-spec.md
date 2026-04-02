@@ -7,7 +7,7 @@
 **Implementation:** `larql-vindex` crate (Rust)  
 **Companion specs:** [Format](vindex-format-spec.md), [Ecosystem](vindex-ecosystem-spec.md), [LQL](lql-spec.md)
 
-**Implementation coverage:** All core operations (load, KNN, walk, describe, mutate, compile), full patch lifecycle, build pipeline (safetensors/GGUF/MLX), Vindexfile, HuggingFace publish/download — all implemented. Readonly base with auto-patch overlay. 566 tests.
+**Implementation coverage:** All core operations (load, KNN, walk, describe, mutate, compile), full patch lifecycle, build pipeline (safetensors/GGUF/MLX), Vindexfile, HuggingFace publish/download — all implemented. Readonly base with auto-patch overlay. GateIndex trait for transparent patched/unpatched access. 600 tests.
 
 ---
 
@@ -42,6 +42,8 @@ let hits: Vec<(usize, f32)> = index.gate_knn(layer, &residual, top_k);
 ```
 
 Computes `gate_matrix @ residual` via BLAS matmul, returns top-K feature indices sorted by absolute dot product. This is both the gate computation and the nearest-neighbor search.
+
+Both `VectorIndex` and `PatchedVindex` implement the `GateIndex` trait, which provides `gate_knn`, `feature_meta`, and `num_features`. This allows consumers like `WalkFfn` to work transparently with patched or unpatched indexes — INSERT/DELETE/UPDATE to the vindex immediately affect KNN results and inference output.
 
 **Performance:** 0.008ms per layer on CPU (M-series Mac). 34 layers = 0.3ms for a full walk.
 
@@ -533,7 +535,55 @@ Model loading (safetensors, GGUF, MLX) and quantization (f16, Q4_0, MXFP4) live 
 
 ---
 
-## 6. Benchmarks
+## 6. MoE and Quantized Models
+
+### 6.1 Knowledge Extraction by Architecture Type
+
+| Architecture | Weights | DESCRIBE | WALK | INFER | Notes |
+|---|---|---|---|---|---|
+| Dense (Gemma, Llama, Qwen) | f32/f16/bf16 | ✅ Works | ✅ Works | ✅ Works | Gate KNN with raw embeddings is accurate |
+| MoE, full precision (Mixtral) | f16/bf16 per expert | ✅ Expected | ✅ Expected | ✅ Works | Per-expert gate vectors have enough precision |
+| MoE, MXFP4 (GPT-OSS) | 4-bit block quantized | ❌ Noisy | ❌ Noisy | ✅ Works | 4-bit gate vectors lack precision for isolated KNN |
+
+### 6.2 Why MXFP4 Models Work at Inference but Not for Browse
+
+At inference time, GPT-OSS produces correct answers ("The capital of France is Paris") using MXFP4 weights. The knowledge IS encoded in the 4-bit weights. But DESCRIBE with raw embeddings fails because:
+
+1. **Gate KNN is not how the model uses gate vectors.** The model computes `SiLU(x @ W_gate) * (x @ W_up)` — a multiplicative interaction between gate and up projections. The SiLU gating combined with the up projection selects very different features than the raw gate dot product alone.
+
+2. **The model uses transformed residuals, not raw embeddings.** By layer 20, the input has been through 20 layers of attention and FFN. The raw token embedding for "France" at layer 20 is meaningless — the model sees a transformed representation.
+
+3. **4-bit precision creates noisy dot products.** MXFP4 quantizes each weight to one of 16 values (±{0, 0.5, 1, 1.5, 2, 3, 4, 6} × shared scale). For dense models at f16 (65K distinct values per weight), gate KNN produces ~14 features above threshold 5.0. For GPT-OSS at MXFP4, **59,717 features** score above 5.0 — the signal is lost in noise.
+
+4. **MoE expert specialization.** With 128 experts of 2,880 features each, individual features are highly context-specific. They're designed to activate in specific routing contexts, not for isolated entity lookup.
+
+### 6.3 Strategies for MXFP4/MoE Knowledge Access
+
+**Working now:**
+- **INFER** (with model weights) — full forward pass produces correct answers
+- **Serving** — the vindex loads in 2 seconds, gate KNN still provides fast approximate retrieval
+
+**Future approaches:**
+- **Residual-based DESCRIBE** — run a forward pass through attention layers to get the actual residual at each layer, then use that for gate KNN. Requires inference-level extraction.
+- **Probe-based labeling** — run known entity prompts through the model, capture which features activate in each expert, build labels empirically. The probe pipeline from larql-knowledge.
+- **Router-level knowledge** — use the 128 router directions per layer as "macro-features". The router weights are bf16 (full precision) and cleanly separate entity types into expert clusters.
+- **Gated KNN** — compute the full `SiLU(gate) × up` activation instead of raw gate dot product. Requires both halves of the fused tensor and is 2× the computation, but produces accurate feature activations.
+- **Unquantized extraction** — if full-precision weights become available, standard gate KNN will work.
+
+### 6.4 Detection and User Guidance
+
+When loading an MXFP4-quantized model, LARQL detects `ExpertFormat::PackedMxfp4` and should warn:
+
+```
+⚠ MXFP4 quantized experts detected (GPT-OSS family).
+  DESCRIBE/WALK use approximate gate KNN — results may be noisy.
+  For accurate knowledge queries, use INFER (requires --level inference).
+  For browse-quality results, probe labels are recommended.
+```
+
+---
+
+## 7. Benchmarks
 
 | Operation | Latency |
 |---|---|

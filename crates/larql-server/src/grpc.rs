@@ -451,7 +451,7 @@ fn grpc_infer(
     match mode {
         "compare" => {
             let patched = model.patched.blocking_read();
-            let walk_ffn = larql_inference::WalkFfn::new(weights, patched.base(), 8092);
+            let walk_ffn = larql_inference::WalkFfn::new(weights, &*patched, 8092);
             let ws = std::time::Instant::now();
             let walk_pred = larql_inference::predict_with_ffn(weights, &model.tokenizer, &token_ids, top_k, &walk_ffn);
             let walk_ms = ws.elapsed().as_secs_f64() as f32 * 1000.0;
@@ -486,7 +486,7 @@ fn grpc_infer(
         }
         _ => {
             let patched = model.patched.blocking_read();
-            let walk_ffn = larql_inference::WalkFfn::new(weights, patched.base(), 8092);
+            let walk_ffn = larql_inference::WalkFfn::new(weights, &*patched, 8092);
             let pred = larql_inference::predict_with_ffn(weights, &model.tokenizer, &token_ids, top_k, &walk_ffn);
             Ok(InferResponse {
                 prompt: req.prompt.clone(),

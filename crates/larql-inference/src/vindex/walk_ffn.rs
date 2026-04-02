@@ -10,9 +10,9 @@ use crate::ffn::FfnBackend;
 use crate::ffn::sparse_compute::sparse_ffn_forward;
 use crate::model::ModelWeights;
 
-use larql_vindex::{VectorIndex, WalkHit, WalkTrace};
+use larql_vindex::{GateIndex, WalkHit, WalkTrace};
 
-/// FFN backend that uses the VectorIndex for gate selection.
+/// FFN backend that uses a GateIndex for gate selection.
 ///
 /// The gate matmul IS the KNN. `residual × gate_vectors^T` is both the gate
 /// computation and the similarity search. Same operation, different framing.
@@ -22,13 +22,13 @@ use larql_vindex::{VectorIndex, WalkHit, WalkTrace};
 /// actual up/down weights for the FFN computation.
 pub struct WalkFfn<'a> {
     pub weights: &'a ModelWeights,
-    pub index: &'a VectorIndex,
+    pub index: &'a dyn GateIndex,
     pub top_k: usize,
     trace: std::cell::RefCell<Vec<(usize, Vec<WalkHit>)>>,
 }
 
 impl<'a> WalkFfn<'a> {
-    pub fn new(weights: &'a ModelWeights, index: &'a VectorIndex, top_k: usize) -> Self {
+    pub fn new(weights: &'a ModelWeights, index: &'a dyn GateIndex, top_k: usize) -> Self {
         Self {
             weights,
             index,

@@ -59,25 +59,42 @@ impl Session {
                     rc_status,
                 )];
 
+                let router = larql_vindex::RouterIndex::load(&path, &config);
                 let patched = larql_vindex::PatchedVindex::new(index);
-                self.backend = Backend::Vindex { path, config, patched, relation_classifier };
+                self.backend = Backend::Vindex { path, config, patched, relation_classifier, router };
                 // Reset any previous patch session
                 self.patch_recording = None;
                 self.auto_patch = false;
                 Ok(out)
             }
-            UseTarget::Model { id, auto_extract } => {
-                let mut out = vec![format!(
-                    "Direct model access not yet implemented. Extract first:"
-                )];
+            UseTarget::Model { id, auto_extract: _ } => {
+                let mut out = Vec::new();
+                out.push(format!("Loading model: {id}..."));
+
+                let model_path = larql_inference::resolve_model_path(id)
+                    .map_err(|e| LqlError::Execution(format!("failed to resolve model: {e}")))?;
+                let weights = larql_inference::load_model_dir(&model_path)
+                    .map_err(|e| LqlError::Execution(format!("failed to load model: {e}")))?;
+                let tokenizer = larql_inference::load_tokenizer(&model_path)
+                    .map_err(|e| LqlError::Execution(format!("failed to load tokenizer: {e}")))?;
+
+                let size_gb = dir_size(&model_path) as f64 / (1024.0 * 1024.0 * 1024.0);
                 out.push(format!(
-                    "  EXTRACT MODEL \"{}\" INTO \"{}.vindex\";",
+                    "Using model: {} ({} layers, hidden={}, {:.1} GB, live weights)",
                     id,
-                    id.split('/').last().unwrap_or(id)
+                    weights.num_layers,
+                    weights.hidden_size,
+                    size_gb,
                 ));
-                if *auto_extract {
-                    out.push("  (AUTO_EXTRACT noted — will be supported in a future version)".into());
-                }
+                out.push("Supported: INFER, EXPLAIN INFER, STATS. For WALK/DESCRIBE/SELECT, use EXTRACT first.".into());
+
+                self.backend = Backend::Weight {
+                    model_id: id.clone(),
+                    weights,
+                    tokenizer,
+                };
+                self.patch_recording = None;
+                self.auto_patch = false;
                 Ok(out)
             }
             UseTarget::Remote(url) => self.exec_use_remote(url),
@@ -86,7 +103,7 @@ impl Session {
 
     pub(crate) fn exec_stats(&self, _vindex_path: Option<&str>) -> Result<Vec<String>, LqlError> {
         match &self.backend {
-            Backend::Vindex { path, config, patched, relation_classifier } => {
+            Backend::Vindex { path, config, patched, relation_classifier, .. } => {
                 let index = patched.base();
                 let total_features: usize = config.layers.iter().map(|l| l.num_features).sum();
                 let file_size = dir_size(path);
@@ -239,6 +256,20 @@ impl Session {
                 out.push(format!("Path:            {}", path.display()));
                 Ok(out)
             }
+            Backend::Weight { model_id, weights, .. } => {
+                let mut out = Vec::new();
+                out.push(format!("Model:           {}", model_id));
+                out.push(format!("Backend:         live weights (no vindex)"));
+                out.push(String::new());
+                out.push(format!("Layers:          {}", weights.num_layers));
+                out.push(format!("Hidden size:     {}", weights.hidden_size));
+                out.push(format!("Intermediate:    {}", weights.intermediate_size));
+                out.push(format!("Vocab size:      {}", format_number(weights.vocab_size)));
+                out.push(String::new());
+                out.push("Supported:       INFER, EXPLAIN INFER, STATS".into());
+                out.push("For WALK/DESCRIBE/SELECT/INSERT: EXTRACT into a vindex first.".into());
+                Ok(out)
+            }
             Backend::Remote { .. } => self.remote_stats(),
             Backend::None => Err(LqlError::NoBackend),
         }
@@ -311,12 +342,14 @@ impl Session {
             format_number(total_features),
         ));
 
+        let router = larql_vindex::RouterIndex::load(&output_dir, &config);
         let patched = larql_vindex::PatchedVindex::new(index);
         self.backend = Backend::Vindex {
             path: output_dir,
             config,
             patched,
             relation_classifier,
+            router,
         };
 
         Ok(out)
@@ -612,6 +645,7 @@ impl Session {
 
             let model_name = match &self.backend {
                 Backend::Vindex { config, .. } => config.model.clone(),
+                Backend::Weight { model_id, .. } => model_id.clone(),
                 _ => "unknown".into(),
             };
 
@@ -643,6 +677,12 @@ impl Session {
         match vref {
             VindexRef::Current => match &self.backend {
                 Backend::Vindex { path, .. } => Ok(path.clone()),
+                Backend::Weight { model_id, .. } => Err(LqlError::Execution(format!(
+                    "CURRENT refers to a live model, not a vindex. Extract first:\n  \
+                     EXTRACT MODEL \"{}\" INTO \"{}.vindex\"",
+                    model_id,
+                    model_id.split('/').last().unwrap_or(model_id),
+                ))),
                 _ => Err(LqlError::NoBackend),
             },
             VindexRef::Path(p) => {

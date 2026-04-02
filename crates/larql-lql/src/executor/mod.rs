@@ -30,6 +30,16 @@ pub(crate) enum Backend {
         /// go through this. The base files on disk are never modified.
         patched: larql_vindex::PatchedVindex,
         relation_classifier: Option<RelationClassifier>,
+        /// MoE router index (if available). Used for MoE-aware DESCRIBE.
+        router: Option<larql_vindex::RouterIndex>,
+    },
+    /// Direct model weight access — no vindex extraction needed.
+    /// Supports INFER, EXPLAIN INFER, and STATS. Browse/mutation ops
+    /// require extraction to a vindex first.
+    Weight {
+        model_id: String,
+        weights: larql_inference::ModelWeights,
+        tokenizer: larql_inference::tokenizers::Tokenizer,
     },
     /// Remote server backend — queries forwarded via HTTP.
     /// Local patches can be applied for client-side overlay.
@@ -231,6 +241,7 @@ impl Session {
 
         let model_name = match &self.backend {
             Backend::Vindex { config, .. } => config.model.clone(),
+            Backend::Weight { model_id, .. } => model_id.clone(),
             _ => "unknown".into(),
         };
 
@@ -342,6 +353,12 @@ impl Session {
     ) -> Result<&larql_vindex::PatchedVindex, LqlError> {
         match &self.backend {
             Backend::Vindex { patched, .. } => Ok(patched),
+            Backend::Weight { model_id, .. } => Err(LqlError::Execution(format!(
+                "this operation requires a vindex. Extract first:\n  \
+                 EXTRACT MODEL \"{}\" INTO \"{}.vindex\"",
+                model_id,
+                model_id.split('/').last().unwrap_or(model_id),
+            ))),
             _ => Err(LqlError::NoBackend),
         }
     }
@@ -352,6 +369,12 @@ impl Session {
     ) -> Result<(&Path, &larql_vindex::VindexConfig, &mut larql_vindex::PatchedVindex), LqlError> {
         match &mut self.backend {
             Backend::Vindex { path, config, patched, .. } => Ok((path, config, patched)),
+            Backend::Weight { model_id, .. } => Err(LqlError::Execution(format!(
+                "mutation requires a vindex. Extract first:\n  \
+                 EXTRACT MODEL \"{}\" INTO \"{}.vindex\"",
+                model_id,
+                model_id.split('/').last().unwrap_or(model_id),
+            ))),
             _ => Err(LqlError::NoBackend),
         }
     }
@@ -363,6 +386,12 @@ impl Session {
     {
         match &self.backend {
             Backend::Vindex { path, config, patched, .. } => Ok((path, config, patched)),
+            Backend::Weight { model_id, .. } => Err(LqlError::Execution(format!(
+                "this operation requires a vindex. Extract first:\n  \
+                 EXTRACT MODEL \"{}\" INTO \"{}.vindex\"",
+                model_id,
+                model_id.split('/').last().unwrap_or(model_id),
+            ))),
             _ => Err(LqlError::NoBackend),
         }
     }

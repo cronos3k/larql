@@ -485,7 +485,13 @@ Gate vectors at int8: 0.83 GB
 Gate vectors at int4: 0.42 GB — a 4B model's knowledge in 400 MB
 ```
 
-### 12.2 Streaming Build — IMPLEMENTED
+### 12.2 MXFP4 Quantized Models
+
+Models distributed with MXFP4 block quantization (e.g., GPT-OSS-120B) can be extracted to vindex format, but gate KNN produces noisy results due to 4-bit weight precision. The model works correctly at inference time because the full forward pass (SiLU gating × up projection, transformed residuals) compensates for quantization noise. Isolated gate dot products cannot.
+
+See [Operations Spec Section 6](vindex-operations-spec.md) for strategies.
+
+### 12.3 Streaming Build — IMPLEMENTED
 
 Extracts vindex from safetensors without loading the full model into memory. Mmaps safetensors shards, processes one layer at a time. Peak memory = embeddings + 1 layer's weights, not the full model. Enables 120B+ MoE extraction on machines with 16 GB RAM.
 

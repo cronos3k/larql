@@ -218,9 +218,10 @@ Input formats: **safetensors** (HuggingFace), **GGUF** (llama.cpp, dequantized t
 | Qwen | Qwen 2/2.5 (0.5B-72B) | Gated (SiLU) |
 | Phi | Phi 2/3 (2.7B-14B) | Gated |
 | DeepSeek | DeepSeek V2/V3 | MoE (shared + routed) |
+| GPT-OSS | GPT-OSS-120B | MoE (128 experts, MXFP4) |
 | GPT-2 | GPT-2 (117M-1.5B) | Dense (GELU) |
 
-MoE models store all experts' features in one flat index. Gate KNN naturally selects features across experts — no router needed for browse operations.
+Dense and full-precision MoE models support all operations (DESCRIBE, WALK, INFER). MXFP4-quantized MoE models (GPT-OSS) can be extracted and served but DESCRIBE/WALK produce noisy results due to 4-bit weight precision — use INFER for accurate knowledge queries. See [operations spec](docs/vindex-operations-spec.md) for details.
 
 ## Benchmarks
 

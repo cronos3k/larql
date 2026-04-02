@@ -4,6 +4,12 @@ use pyo3::types::PyDict;
 use larql_core as lq;
 use larql_inference as li;
 
+mod vindex;
+mod session;
+
+use vindex::{PyVindex, PyFeatureMeta, PyWalkHit, PyDescribeEdge, PyRelation};
+use session::PySession;
+
 // ── Helpers ──
 
 fn parse_source(s: &str) -> lq::SourceType {
@@ -709,13 +715,51 @@ fn attention_walk(
     Ok(PyGraph { inner: graph })
 }
 
+// ── Vindex top-level functions ──
+
+/// Load a vindex from a directory path.
+///
+/// Returns a Vindex object with gate vectors, embeddings, and tokenizer.
+/// Supports numpy array access for gate vectors and embeddings.
+///
+/// Example:
+///     vindex = larql.load_vindex("gemma3-4b.vindex")
+///     embed = vindex.embed("France")
+///     hits = vindex.entity_knn("France", layer=26, top_k=10)
+#[pyfunction]
+fn load_vindex(path: &str) -> PyResult<PyVindex> {
+    PyVindex::open(path)
+}
+
+/// Create an LQL session connected to a vindex.
+///
+/// The session provides both LQL query execution and direct vindex access:
+///     session = larql.session("gemma3-4b.vindex")
+///     session.query("DESCRIBE 'France'")         # LQL queries
+///     session.vindex.embed("France")              # numpy arrays
+#[pyfunction]
+fn create_session(py: Python<'_>, path: &str) -> PyResult<PySession> {
+    PySession::create(py, path)
+}
+
 // ── Module ──
 
 #[pymodule]
-fn _larql_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Graph types (existing)
     m.add_class::<PyEdge>()?;
     m.add_class::<PyNode>()?;
     m.add_class::<PyGraph>()?;
+
+    // Vindex types (new)
+    m.add_class::<PyVindex>()?;
+    m.add_class::<PyFeatureMeta>()?;
+    m.add_class::<PyWalkHit>()?;
+    m.add_class::<PyDescribeEdge>()?;
+    m.add_class::<PyRelation>()?;
+    m.add_class::<PySession>()?;
+
+    // Graph functions (existing)
     m.add_function(wrap_pyfunction!(load, m)?)?;
     m.add_function(wrap_pyfunction!(save, m)?)?;
     m.add_function(wrap_pyfunction!(shortest_path, m)?)?;
@@ -729,5 +773,10 @@ fn _larql_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(save_csv, m)?)?;
     m.add_function(wrap_pyfunction!(weight_walk, m)?)?;
     m.add_function(wrap_pyfunction!(attention_walk, m)?)?;
+
+    // Vindex functions (new)
+    m.add_function(wrap_pyfunction!(load_vindex, m)?)?;
+    m.add_function(wrap_pyfunction!(create_session, m)?)?;
+
     Ok(())
 }

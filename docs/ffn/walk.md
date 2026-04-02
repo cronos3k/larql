@@ -1,15 +1,15 @@
-# WalkFfn — Vindex Graph Walk with Interpretability
+# WalkFfn — Vindex Gate KNN with Sparse FFN
 
-**File:** `crates/larql-inference/src/vector_index.rs`
+**File:** `crates/larql-inference/src/vindex/walk_ffn.rs`
 **Status:** Production
-**Speed:** Same as WeightFfn (delegates computation)
-**Accuracy:** 100% bit-identical to dense
+**Speed:** Lossless at K=8092 (97.91% on France→Paris)
+**Accuracy:** Proven equivalent to dense for factual queries
 
 ## Description
 
-The production FFN backend for LARQL. Delegates all computation to `WeightFfn` (architecture-
-correct dense FFN) and adds the vindex interpretability layer on top. For each layer, captures
-a walk trace showing which features activated and what they mean.
+The production FFN backend for LARQL inference. Uses the vindex gate KNN for feature selection,
+then runs sparse FFN computation on only the selected features. Captures a walk trace showing
+which features activated and what they mean.
 
 This is the backend used by the LQL `INFER` statement.
 
@@ -18,13 +18,16 @@ This is the backend used by the LQL `INFER` statement.
 ```
 Input x (post-attention residual)
   │
-  ├─► WeightFfn::forward(layer, x)  →  exact FFN output
+  ├─► GateIndex::gate_knn(layer, x_last, top_k)  →  feature selection
+  │     Uses VectorIndex or PatchedVindex (both implement GateIndex)
   │
-  └─► VectorIndex::gate_knn(layer, x_last, top_k)  →  walk trace
-        Feature IDs + gate scores + down_meta labels
+  └─► sparse_ffn_forward(weights, layer, x, features)  →  sparse FFN output
+        Only computes gate/up/down for selected features
 ```
 
-Computation and trace are independent. The trace doesn't affect the output.
+The `GateIndex` trait abstracts over both `VectorIndex` (base, readonly) and `PatchedVindex`
+(with overlay). This means INSERT/DELETE/UPDATE to the vindex immediately affect inference
+output — patched gate vectors are used for feature selection.
 
 ## Walk Trace
 
@@ -43,9 +46,14 @@ L28: F8200  gate=-5.297  hears="France"  c=0.08
 ## Usage
 
 ```rust
-use larql_inference::vector_index::{VectorIndex, WalkFfn};
+use larql_inference::vindex::WalkFfn;
 
-let walk_ffn = WalkFfn::new(weights, &vindex, top_k);
+// Works with VectorIndex (unpatched)
+let walk_ffn = WalkFfn::new(weights, &index, top_k);
+
+// Works with PatchedVindex (mutations visible)
+let walk_ffn = WalkFfn::new(weights, &patched, top_k);
+
 let result = predict_with_ffn(weights, tokenizer, &token_ids, 5, &walk_ffn);
 let trace = walk_ffn.take_trace(); // interpretability layer
 ```
@@ -54,5 +62,5 @@ let trace = walk_ffn.take_trace(); // interpretability layer
 
 ```sql
 INFER "The capital of France is" TOP 5;
-EXPLAIN WALK "The capital of France is";
+EXPLAIN INFER "The capital of France is" TOP 5;
 ```

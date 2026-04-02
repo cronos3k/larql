@@ -1,6 +1,6 @@
 # Research Findings
 
-Discoveries from extracting and querying Gemma 3-4B-IT weight vectors in SurrealDB.
+Discoveries from extracting and querying Gemma 3-4B-IT weight vectors.
 
 ## 1. The FFN graph is complete
 
@@ -75,21 +75,16 @@ Computing `embedding × W_V × W_O` across all heads/layers makes distances wors
 
 All findings reproducible from:
 ```bash
-# Extract vectors
+# Build a vindex
+larql extract-index google/gemma-3-4b-it -o output/gemma3-4b.vindex --f16
+
+# Query via REPL
+larql repl
+> USE "output/gemma3-4b.vindex";
+> DESCRIBE "France";
+> WALK "The capital of France is" TOP 10;
+
+# Or extract raw vectors for analysis
 larql vector-extract google/gemma-3-4b-it -o output/vectors --resume
-
-# Load into SurrealDB
-larql vector-import output/vectors --ns larql --db gemma3_4b --resume
-
-# Circuit classification
-python scripts/circuit_classify.py --layer 26 --output output/circuits/L26_circuits.json
-
-# Edge discovery
 python scripts/edge_discover_fast.py --vectors output/vectors --output output/edges --layers 0-33
-
-# Validation
-python scripts/validate_graph.py --model google/gemma-3-4b-it --graph output/merged.larql.json ...
-
-# Attention trace
-python scripts/attention_trace.py --model google/gemma-3-4b-it --entities "Germany,..." ...
 ```

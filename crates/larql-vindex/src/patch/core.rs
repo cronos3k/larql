@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Vindex patch system — lightweight, shareable knowledge diffs.
 //!
 //! A patch (.vlp file) captures INSERT, DELETE, and UPDATE operations
@@ -10,7 +11,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::error::VindexError;
-use crate::index::{FeatureMeta, VectorIndex, WalkHit, WalkTrace};
+use crate::index::{FeatureMeta, GateIndex, VectorIndex, WalkHit, WalkTrace};
 
 use ndarray::Array1;
 
@@ -160,6 +161,7 @@ pub fn decode_gate_vector(b64: &str) -> Result<Vec<f32>, VindexError> {
 }
 
 // Simple base64 (no external dependency)
+#[allow(dead_code)]
 fn base64_encode(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
@@ -530,5 +532,19 @@ impl PatchedVindex {
     /// Hidden size (delegates to base).
     pub fn hidden_size(&self) -> usize {
         self.base.hidden_size
+    }
+}
+
+impl GateIndex for PatchedVindex {
+    fn gate_knn(&self, layer: usize, residual: &Array1<f32>, top_k: usize) -> Vec<(usize, f32)> {
+        self.gate_knn(layer, residual, top_k)
+    }
+
+    fn feature_meta(&self, layer: usize, feature: usize) -> Option<FeatureMeta> {
+        self.feature_meta(layer, feature)
+    }
+
+    fn num_features(&self, layer: usize) -> usize {
+        self.num_features(layer)
     }
 }

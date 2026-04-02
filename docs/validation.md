@@ -4,7 +4,7 @@
 
 The knowledge graph is extracted directly from model weight vectors. Validation is not "does the graph match inference" but "does the graph faithfully represent what's in the weights."
 
-This is proven by the SurrealDB embedding KNN queries. Each clean edge was verified by:
+This is proven by embedding KNN queries. Each clean edge was verified by:
 
 1. **Gate KNN** — the gate vector's nearest embedding neighbor IS the trigger entity
 2. **Down KNN** — the down vector's nearest embedding neighbors ARE the output concept
@@ -20,7 +20,7 @@ F918      Rome            Roman, ROM, Rom, Roma, Rome, Romano            ✓
 F2230     Dutch           Dutch, Netherlands, dutch, Amsterdam, 荷兰     ✓
 ```
 
-Each result is a cosine similarity search against 262,208 token embeddings in SurrealDB. The down vector genuinely points toward the output concept in embedding space.
+Each result is a cosine similarity search against 262,208 token embeddings. The down vector genuinely points toward the output concept in embedding space.
 
 ### What the graph captures vs what inference produces
 
@@ -68,20 +68,16 @@ This matches known transformer architecture findings without using any forward p
 ## Reproduction
 
 ```bash
-# Extract vectors
+# Build a vindex
+larql extract-index google/gemma-3-4b-it -o output/gemma3-4b.vindex --f16
+
+# Verify edges via REPL
+larql repl
+> USE "output/gemma3-4b.vindex";
+> DESCRIBE "France";
+> SELECT * FROM EDGES NEAREST TO "France" AT LAYER 26 LIMIT 20;
+
+# Or extract raw vectors for batch analysis
 larql vector-extract google/gemma-3-4b-it -o output/vectors --resume
-
-# Load into SurrealDB
-larql vector-import output/vectors --tables embeddings,ffn_gate,ffn_down --ns larql --db gemma3_4b --resume
-
-# Verify individual edges
-surreal sql --endpoint http://localhost:8000 --user root --pass root --ns larql --db gemma3_4b
-> LET $d = (SELECT vector FROM ONLY ffn_down:L26_F5040).vector;
-> SELECT top_token, vector::distance::knn() AS dist FROM embeddings WHERE vector <|10, COSINE|> $d ORDER BY dist;
-
-# Batch discovery
 python scripts/edge_discover_fast.py --vectors output/vectors --output output/edges --layers 0-33
-
-# Convert to graph
-python scripts/edges_to_larql.py output/edges/ -o output/discovered.larql.json
 ```

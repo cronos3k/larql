@@ -116,6 +116,13 @@ larql> INSERT INTO EDGES (entity, relation, target) VALUES ("John", "lives-in", 
 larql> SAVE PATCH "edits.vlp";
 ```
 
+Direct model access (no extraction needed):
+```sql
+larql> USE MODEL "google/gemma-3-4b-it";
+larql> INFER "The capital of France is" TOP 5;
+-- WALK/DESCRIBE/SELECT require EXTRACT into a vindex first
+```
+
 Remote mode:
 ```sql
 larql> USE REMOTE "http://localhost:8080";

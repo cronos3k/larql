@@ -120,8 +120,37 @@ impl Session {
         top: Option<u32>,
         compare: bool,
     ) -> Result<Vec<String>, LqlError> {
-        let (path, config, patched) = self.require_vindex()?;
         let top_k = top.unwrap_or(5) as usize;
+
+        // Weight backend: dense inference (no vindex needed)
+        if let super::Backend::Weight { weights, tokenizer, .. } = &self.backend {
+            let encoding = tokenizer
+                .encode(prompt, true)
+                .map_err(|e| LqlError::Execution(format!("tokenize error: {e}")))?;
+            let token_ids: Vec<u32> = encoding.get_ids().to_vec();
+
+            let start = std::time::Instant::now();
+            let result = larql_inference::predict(weights, tokenizer, &token_ids, top_k);
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+            let mut out = Vec::new();
+            out.push("Predictions (dense — no vindex):".into());
+            for (i, (tok, prob)) in result.predictions.iter().enumerate() {
+                out.push(format!(
+                    "  {:2}. {:20} ({:.2}%)",
+                    i + 1, tok, prob * 100.0
+                ));
+            }
+            out.push(format!("  {:.0}ms", elapsed_ms));
+            if !compare {
+                out.push(String::new());
+                out.push("Tip: EXTRACT into a vindex for walk FFN (sparse, faster, editable).".into());
+            }
+            return Ok(out);
+        }
+
+        // Vindex backend: walk FFN with optional dense comparison
+        let (path, config, patched) = self.require_vindex()?;
 
         if !config.has_model_weights {
             return Err(LqlError::Execution(format!(
@@ -144,8 +173,8 @@ impl Session {
         let token_ids: Vec<u32> = encoding.get_ids().to_vec();
 
         // 8092 features per layer is proven lossless (97.91% on France→Paris).
-        // TODO: use PatchedVindex for WalkFfn once it supports it
-        let walk_ffn = larql_inference::vindex::WalkFfn::new(&weights, patched.base(), 8092);
+        // PatchedVindex implements GateIndex — INSERT/DELETE/UPDATE affects inference.
+        let walk_ffn = larql_inference::vindex::WalkFfn::new(&weights, patched, 8092);
         let start = std::time::Instant::now();
         let result = larql_inference::predict_with_ffn(
             &weights,
@@ -232,6 +261,11 @@ impl Session {
         relations_only: bool,
         verbose: bool,
     ) -> Result<Vec<String>, LqlError> {
+        // MoE router-based DESCRIBE if available
+        if let Some(router_result) = self.try_moe_describe(entity, band, layer, verbose)? {
+            return Ok(router_result);
+        }
+
         let (path, config, patched) = self.require_vindex()?;
 
         let (embed, embed_scale) = larql_vindex::load_vindex_embeddings(path)
@@ -784,8 +818,34 @@ impl Session {
         prompt: &str,
         top: Option<u32>,
     ) -> Result<Vec<String>, LqlError> {
-        let (path, config, patched) = self.require_vindex()?;
         let top_k = top.unwrap_or(5) as usize;
+
+        // Weight backend: dense inference trace (no feature labels)
+        if let super::Backend::Weight { weights, tokenizer, .. } = &self.backend {
+            let encoding = tokenizer
+                .encode(prompt, true)
+                .map_err(|e| LqlError::Execution(format!("tokenize error: {e}")))?;
+            let token_ids: Vec<u32> = encoding.get_ids().to_vec();
+
+            let start = std::time::Instant::now();
+            let result = larql_inference::predict(weights, tokenizer, &token_ids, top_k);
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+            let mut out = Vec::new();
+            out.push(format!("Inference trace for {:?} (dense — no vindex):", prompt));
+            out.push(format!(
+                "Prediction: {} ({:.2}%) in {:.0}ms",
+                result.predictions.first().map(|(t, _)| t.as_str()).unwrap_or("?"),
+                result.predictions.first().map(|(_, p)| p * 100.0).unwrap_or(0.0),
+                elapsed_ms,
+            ));
+            out.push(String::new());
+            out.push("Note: no per-feature trace without a vindex. EXTRACT for full trace.".into());
+            return Ok(out);
+        }
+
+        // Vindex backend: walk FFN with full feature trace
+        let (path, config, patched) = self.require_vindex()?;
 
         if !config.has_model_weights {
             return Err(LqlError::Execution(
@@ -804,8 +864,8 @@ impl Session {
             .map_err(|e| LqlError::Execution(format!("tokenize error: {e}")))?;
         let token_ids: Vec<u32> = encoding.get_ids().to_vec();
 
-        // TODO: use PatchedVindex for WalkFfn once it supports it
-        let walk_ffn = larql_inference::vindex::WalkFfn::new(&weights, patched.base(), 8092);
+        // PatchedVindex implements GateIndex — INSERT/DELETE/UPDATE affects inference.
+        let walk_ffn = larql_inference::vindex::WalkFfn::new(&weights, patched, 8092);
         let start = std::time::Instant::now();
         let result = larql_inference::predict_with_ffn(
             &weights, &tokenizer, &token_ids, top_k, &walk_ffn,
@@ -854,5 +914,150 @@ impl Session {
         }
 
         Ok(out)
+    }
+
+    // ── MoE Router-guided DESCRIBE ──
+
+    /// For MoE models: use the router to select experts, then gate KNN within
+    /// only the selected experts' features. Same output format as dense DESCRIBE.
+    /// Returns None if no router (dense model — falls through to standard gate KNN).
+    fn try_moe_describe(
+        &self,
+        entity: &str,
+        _band: Option<crate::ast::LayerBand>,
+        _layer: Option<u32>,
+        verbose: bool,
+    ) -> Result<Option<Vec<String>>, LqlError> {
+        let router = match &self.backend {
+            super::Backend::Vindex { router: Some(r), config, .. } => {
+                if config.model_config.as_ref().and_then(|mc| mc.moe.as_ref()).is_none() {
+                    return Ok(None);
+                }
+                r
+            }
+            _ => return Ok(None),
+        };
+
+        let (path, config, _) = self.require_vindex()?;
+
+        let (embed, embed_scale) = larql_vindex::load_vindex_embeddings(path)
+            .map_err(|e| LqlError::Execution(format!("failed to load embeddings: {e}")))?;
+        let tokenizer = larql_vindex::load_vindex_tokenizer(path)
+            .map_err(|e| LqlError::Execution(format!("failed to load tokenizer: {e}")))?;
+
+        let encoding = tokenizer.encode(entity, false)
+            .map_err(|e| LqlError::Execution(format!("tokenize error: {e}")))?;
+        let token_ids: Vec<u32> = encoding.get_ids().to_vec();
+        if token_ids.is_empty() {
+            return Ok(Some(vec![format!("{entity}\n  (not found)")]));
+        }
+
+        let hidden = embed.shape()[1];
+        let query = if token_ids.len() == 1 {
+            embed.row(token_ids[0] as usize).mapv(|v| v * embed_scale)
+        } else {
+            let mut avg = larql_vindex::ndarray::Array1::<f32>::zeros(hidden);
+            for &tok in &token_ids {
+                avg += &embed.row(tok as usize).mapv(|v| v * embed_scale);
+            }
+            avg /= token_ids.len() as f32;
+            avg
+        };
+
+        let last = config.num_layers.saturating_sub(1);
+        let bands = config.layer_bands.clone()
+            .or_else(|| larql_vindex::LayerBands::for_family(&config.family, config.num_layers))
+            .unwrap_or(larql_vindex::LayerBands {
+                syntax: (0, last), knowledge: (0, last), output: (0, last),
+            });
+
+        let start = std::time::Instant::now();
+
+        // ── Per-layer expert routing ──
+        let mut out = vec![entity.to_string()];
+
+        // Aggregate: which experts are most active across the knowledge band?
+        let knowledge_range = bands.knowledge.0..=bands.knowledge.1;
+        let expert_summary = router.route_all_layers(&query, knowledge_range.clone());
+
+        // Show per-layer routing in verbose mode
+        if verbose {
+            out.push(format!("  Routing (L{}-{}):", bands.knowledge.0, bands.knowledge.1));
+            for l in knowledge_range.clone() {
+                if let Some(result) = router.route(l, &query) {
+                    let experts_str: String = result.experts.iter().enumerate()
+                        .map(|(i, e)| format!("E{} ({:.0}%)", e, result.probs[i] * 100.0))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    out.push(format!("    L{:2}: {}", l, experts_str));
+                }
+            }
+            out.push(String::new());
+        }
+
+        // ── Expert summary ──
+        let layers_total = bands.knowledge.1 - bands.knowledge.0 + 1;
+        out.push(format!("  Experts (L{}-{}):", bands.knowledge.0, bands.knowledge.1));
+        let max_experts = if verbose { 15 } else { 6 };
+        for (eid, count, avg_prob) in expert_summary.iter().take(max_experts) {
+            out.push(format!(
+                "    E{:<4} {}/{} layers  ({:.0}% avg)",
+                eid, count, layers_total, avg_prob * 100.0,
+            ));
+        }
+
+        // ── Co-routed entities: what else routes to the same experts? ──
+        let top_experts: Vec<usize> = expert_summary.iter()
+            .take(3)
+            .map(|(e, _, _)| *e)
+            .collect();
+
+        if !top_experts.is_empty() {
+            out.push(String::new());
+            out.push("  Similar (shares experts):".into());
+
+            let mid_layer = (bands.knowledge.0 + bands.knowledge.1) / 2;
+
+            // Sample vocab and find entities that route to the same experts
+            let sample_step = (embed.shape()[0] / 2000).max(1);
+            let mut corouted_all: HashMap<usize, Vec<(String, f32)>> = HashMap::new();
+
+            for tid in (0..embed.shape()[0]).step_by(sample_step) {
+                let tok_emb = embed.row(tid).mapv(|v| v * embed_scale);
+                if let Some(result) = router.route(mid_layer, &tok_emb) {
+                    for (i, &eid) in result.experts.iter().enumerate() {
+                        if top_experts.contains(&eid) {
+                            let tok_str = tokenizer.decode(&[tid as u32], true)
+                                .unwrap_or_default().trim().to_string();
+                            if is_content_token(&tok_str) && tok_str.len() > 1
+                                && tok_str.to_lowercase() != entity.to_lowercase()
+                            {
+                                corouted_all.entry(eid)
+                                    .or_default()
+                                    .push((tok_str, result.probs[i]));
+                            }
+                        }
+                    }
+                }
+            }
+
+            for &eid in &top_experts {
+                if let Some(tokens) = corouted_all.get_mut(&eid) {
+                    tokens.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                    tokens.dedup_by(|a, b| a.0.to_lowercase() == b.0.to_lowercase());
+                    let display: String = tokens.iter()
+                        .take(10)
+                        .map(|(t, _)| t.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    out.push(format!("    E{}: {}", eid, display));
+                }
+            }
+        }
+
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        out.push(format!("\n  {:.0}ms", elapsed_ms));
+
+        Ok(Some(out))
     }
 }

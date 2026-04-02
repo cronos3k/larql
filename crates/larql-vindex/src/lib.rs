@@ -35,8 +35,9 @@ pub use error::VindexError;
 
 // Index
 pub use index::core::{
-    FeatureMeta, IndexLoadCallbacks, SilentLoadCallbacks, VectorIndex, WalkHit, WalkTrace,
+    FeatureMeta, GateIndex, IndexLoadCallbacks, SilentLoadCallbacks, VectorIndex, WalkHit, WalkTrace,
 };
+pub use index::router::{RouterIndex, RouteResult};
 
 // Describe
 pub use describe::{DescribeEdge, LabelSource};
@@ -59,7 +60,7 @@ pub use format::huggingface::{
     resolve_hf_vindex, download_hf_weights, publish_vindex,
     is_hf_path, PublishCallbacks, SilentPublishCallbacks,
 };
-pub use format::weights::{write_model_weights, load_model_weights};
+pub use format::weights::{write_model_weights, load_model_weights, WeightSource, StreamingWeights};
 
 // Patch
 pub use patch::core::{PatchOp, PatchedVindex, VindexPatch};

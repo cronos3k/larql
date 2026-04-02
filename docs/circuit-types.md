@@ -14,7 +14,7 @@ Every FFN feature has a gate vector (what activates it) and a down vector (what 
 
 ## Layer architecture (Gemma 3-4B-IT)
 
-Discovered from cosine(gate, down) on extracted weight vectors in SurrealDB. No forward passes. Full 34-layer profile computed in ~5 minutes.
+Discovered from cosine(gate, down) on extracted weight vectors. No forward passes. Full 34-layer profile computed in ~5 minutes.
 
 ```
 Layer  Proj    Trans   Supp    Ident   Inv     Role
@@ -75,27 +75,21 @@ L33    59.6%   14.4%   15.0%   5.7%    5.3%    FORMAT GATE
 ## Discovery method
 
 ```bash
-# Extract vectors
-larql vector-extract google/gemma-3-4b-it -o output/vectors --resume
+# Build a vindex
+larql extract-index google/gemma-3-4b-it -o output/gemma3-4b.vindex --f16
 
-# Load into SurrealDB
-larql vector-import output/vectors --tables ffn_gate,ffn_down --ns larql --db gemma3_4b --resume
-
-# Classify all features at a layer
-python scripts/circuit_classify.py --layer 26 --output output/L26_circuits.json
+# Query via REPL
+larql repl
+> USE "output/gemma3-4b.vindex";
+> DESCRIBE "France";
+> SHOW FEATURES AT LAYER 26;
 ```
 
-Single feature query in SurrealDB:
+Or extract raw vectors for analysis:
 
-```sql
-LET $g = (SELECT vector FROM ONLY ffn_gate:L26_F67).vector;
-LET $d = (SELECT vector FROM ONLY ffn_down:L26_F67).vector;
-RETURN {
-  feature: 67,
-  gate: (SELECT top_token FROM ONLY ffn_gate:L26_F67).top_token,
-  down: (SELECT top_token FROM ONLY ffn_down:L26_F67).top_token,
-  cosine: vector::similarity::cosine($g, $d)
-};
+```bash
+larql vector-extract google/gemma-3-4b-it -o output/vectors --resume
+python scripts/edge_discover_fast.py --vectors output/vectors --output output/edges --layers 0-33
 ```
 
 ## Key insight

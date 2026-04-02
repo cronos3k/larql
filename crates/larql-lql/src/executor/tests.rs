@@ -96,25 +96,25 @@ fn use_nonexistent_vindex() {
 }
 
 #[test]
-fn use_model_not_implemented() {
+fn use_model_fails_on_nonexistent() {
     let mut session = Session::new();
     let stmt =
-        parser::parse(r#"USE MODEL "google/gemma-3-4b-it";"#).unwrap();
+        parser::parse(r#"USE MODEL "/nonexistent/model";"#).unwrap();
     let result = session.execute(&stmt);
-    assert!(result.is_ok());
-    let lines = result.unwrap();
-    assert!(lines[0].contains("not yet implemented"));
+    // Should fail to resolve the model path
+    assert!(result.is_err());
 }
 
 #[test]
-fn use_model_auto_extract_noted() {
+fn use_model_auto_extract_parses() {
+    // Verify AUTO_EXTRACT parses correctly (loading will fail for nonexistent model)
     let mut session = Session::new();
     let stmt = parser::parse(
-        r#"USE MODEL "google/gemma-3-4b-it" AUTO_EXTRACT;"#,
+        r#"USE MODEL "/nonexistent/model" AUTO_EXTRACT;"#,
     )
     .unwrap();
-    let result = session.execute(&stmt).unwrap();
-    assert!(result.iter().any(|l| l.contains("AUTO_EXTRACT")));
+    let result = session.execute(&stmt);
+    assert!(result.is_err());
 }
 
 // ── Lifecycle: error cases without valid model/vindex ──
@@ -346,4 +346,171 @@ fn format_bytes_mb() {
 fn format_bytes_gb() {
     let gb = 6_420_000_000;
     assert!(format_bytes(gb).contains("GB"));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Weight backend tests
+// ═══════════════════════════════════════════════════════════════
+
+/// Create a minimal ModelWeights for testing the Weight backend.
+fn make_test_weights() -> larql_inference::ModelWeights {
+    use std::collections::HashMap;
+    use larql_inference::ndarray;
+
+    let num_layers = 2;
+    let hidden = 8;
+    let intermediate = 4;
+    let vocab_size = 16;
+
+    let mut tensors: HashMap<String, ndarray::Array2<f32>> = HashMap::new();
+    let mut vectors: HashMap<String, Vec<f32>> = HashMap::new();
+
+    for layer in 0..num_layers {
+        let mut gate = ndarray::Array2::<f32>::zeros((intermediate, hidden));
+        for i in 0..intermediate { gate[[i, i % hidden]] = 1.0 + layer as f32; }
+        tensors.insert(format!("layers.{layer}.mlp.gate_proj.weight"), gate);
+
+        let mut up = ndarray::Array2::<f32>::zeros((intermediate, hidden));
+        for i in 0..intermediate { up[[i, (i + 1) % hidden]] = 0.5; }
+        tensors.insert(format!("layers.{layer}.mlp.up_proj.weight"), up);
+
+        let mut down = ndarray::Array2::<f32>::zeros((hidden, intermediate));
+        for i in 0..intermediate { down[[i % hidden, i]] = 0.3; }
+        tensors.insert(format!("layers.{layer}.mlp.down_proj.weight"), down);
+
+        for suffix in &["q_proj", "k_proj", "v_proj", "o_proj"] {
+            let mut attn = ndarray::Array2::<f32>::zeros((hidden, hidden));
+            for i in 0..hidden { attn[[i, i]] = 1.0; }
+            tensors.insert(format!("layers.{layer}.self_attn.{suffix}.weight"), attn);
+        }
+
+        vectors.insert(format!("layers.{layer}.input_layernorm.weight"), vec![1.0; hidden]);
+        vectors.insert(format!("layers.{layer}.post_attention_layernorm.weight"), vec![1.0; hidden]);
+    }
+
+    vectors.insert("norm.weight".into(), vec![1.0; hidden]);
+
+    let mut embed = ndarray::Array2::<f32>::zeros((vocab_size, hidden));
+    for i in 0..vocab_size { embed[[i, i % hidden]] = 1.0; }
+    let lm_head = embed.clone();
+
+    let arch = larql_models::detect_from_json(&serde_json::json!({
+        "model_type": "llama",
+        "hidden_size": hidden,
+        "num_hidden_layers": num_layers,
+        "intermediate_size": intermediate,
+        "head_dim": hidden,
+        "num_attention_heads": 1,
+        "num_key_value_heads": 1,
+        "rope_theta": 10000.0,
+        "vocab_size": vocab_size,
+    }));
+
+    larql_inference::ModelWeights {
+        tensors, vectors, embed, lm_head,
+        num_layers, hidden_size: hidden, intermediate_size: intermediate,
+        vocab_size, head_dim: hidden, num_q_heads: 1, num_kv_heads: 1,
+        rope_base: 10000.0, arch,
+    }
+}
+
+/// Create a minimal tokenizer for testing.
+fn make_test_tokenizer() -> larql_inference::tokenizers::Tokenizer {
+    let tok_json = r#"{"version":"1.0","model":{"type":"BPE","vocab":{},"merges":[]},"added_tokens":[]}"#;
+    larql_inference::tokenizers::Tokenizer::from_bytes(tok_json.as_bytes()).unwrap()
+}
+
+/// Create a Session with Weight backend for testing.
+fn weight_session() -> Session {
+    let mut session = Session::new();
+    session.backend = Backend::Weight {
+        model_id: "test/model".into(),
+        weights: make_test_weights(),
+        tokenizer: make_test_tokenizer(),
+    };
+    session
+}
+
+#[test]
+fn weight_backend_stats() {
+    let mut session = weight_session();
+    let stmt = parser::parse("STATS;").unwrap();
+    let result = session.execute(&stmt).unwrap();
+    assert!(result.iter().any(|l| l.contains("test/model")));
+    assert!(result.iter().any(|l| l.contains("live weights")));
+    assert!(result.iter().any(|l| l.contains("2"))); // num_layers
+}
+
+#[test]
+fn weight_backend_walk_requires_vindex() {
+    let mut session = weight_session();
+    let stmt = parser::parse(r#"WALK "test" TOP 5;"#).unwrap();
+    let err = session.execute(&stmt).unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("requires a vindex"), "expected vindex error, got: {msg}");
+    assert!(msg.contains("EXTRACT"), "should suggest EXTRACT, got: {msg}");
+}
+
+#[test]
+fn weight_backend_describe_requires_vindex() {
+    let mut session = weight_session();
+    let stmt = parser::parse(r#"DESCRIBE "France";"#).unwrap();
+    let err = session.execute(&stmt).unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("requires a vindex"));
+}
+
+#[test]
+fn weight_backend_select_requires_vindex() {
+    let mut session = weight_session();
+    let stmt = parser::parse("SELECT * FROM EDGES;").unwrap();
+    let err = session.execute(&stmt).unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("requires a vindex"));
+}
+
+#[test]
+fn weight_backend_explain_walk_requires_vindex() {
+    let mut session = weight_session();
+    let stmt = parser::parse(r#"EXPLAIN WALK "test";"#).unwrap();
+    let err = session.execute(&stmt).unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("requires a vindex"));
+}
+
+#[test]
+fn weight_backend_insert_requires_vindex() {
+    let mut session = weight_session();
+    let stmt = parser::parse(
+        r#"INSERT INTO EDGES (entity, relation, target) VALUES ("a", "b", "c");"#
+    ).unwrap();
+    let err = session.execute(&stmt).unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("requires a vindex") || msg.contains("mutation requires"));
+}
+
+#[test]
+fn weight_backend_show_relations_requires_vindex() {
+    let mut session = weight_session();
+    let stmt = parser::parse("SHOW RELATIONS;").unwrap();
+    let err = session.execute(&stmt).unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("requires a vindex"));
+}
+
+#[test]
+fn weight_backend_compile_current_requires_vindex() {
+    let mut session = weight_session();
+    let stmt = parser::parse(r#"COMPILE CURRENT INTO MODEL "out/";"#).unwrap();
+    let err = session.execute(&stmt).unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("EXTRACT") || msg.contains("vindex"));
+}
+
+#[test]
+fn weight_backend_show_models_works() {
+    let mut session = weight_session();
+    let stmt = parser::parse("SHOW MODELS;").unwrap();
+    let result = session.execute(&stmt);
+    assert!(result.is_ok());
 }

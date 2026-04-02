@@ -39,15 +39,27 @@ fn main() {
 
     demonstrate(
         &mut session,
-        r#"USE MODEL "google/gemma-3-4b-it";"#,
-        "USE MODEL (not yet implemented)",
+        r#"USE MODEL "/nonexistent/model";"#,
+        "USE MODEL (nonexistent — shows error)",
     );
 
     demonstrate(
         &mut session,
-        r#"USE MODEL "google/gemma-3-4b-it" AUTO_EXTRACT;"#,
-        "USE MODEL AUTO_EXTRACT",
+        r#"USE MODEL "/nonexistent/model" AUTO_EXTRACT;"#,
+        "USE MODEL AUTO_EXTRACT (nonexistent — shows error)",
     );
+
+    // ── Weight backend: demonstrate which ops work, which need vindex ──
+    section("Weight Backend (USE MODEL)");
+
+    // We can't actually load a model in demo, but show that vindex-only ops
+    // give clear errors when no backend is loaded (similar to Weight backend).
+    // The Weight backend tests cover the actual behavior.
+    println!("  (Skipped: requires a real model on disk.)");
+    println!("  When USE MODEL succeeds:");
+    println!("    INFER, EXPLAIN INFER, STATS → work (dense inference)");
+    println!("    WALK, DESCRIBE, SELECT, INSERT → error with EXTRACT suggestion");
+    println!("  See: executor::tests::weight_backend_* tests");
 
     // ── Operations requiring backend ──
     section("Operations Without Backend");

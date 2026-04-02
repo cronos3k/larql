@@ -65,7 +65,7 @@ fn run_infer(
 
     if use_walk {
         let patched = model.patched.blocking_read();
-        let walk_ffn = larql_inference::WalkFfn::new(weights, patched.base(), 8092);
+        let walk_ffn = larql_inference::WalkFfn::new(weights, &*patched, 8092);
         let walk_start = std::time::Instant::now();
         let pred = larql_inference::predict_with_ffn(
             weights,
