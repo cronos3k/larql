@@ -58,6 +58,9 @@ impl<'a> WalkFfn<'a> {
     }
 
     /// Full mmap walk: gate + up + down all from mmap. Zero safetensor reads.
+    /// Currently slower than exact path due to 3 separate mmap file reads.
+    /// Will activate when gate+up+down are coalesced into one mmap region.
+    #[allow(dead_code)]
     ///
     /// gate_scores = gate_vectors @ x^T     (mmap, one BLAS gemm)
     /// up_scores   = up_vectors @ x^T       (mmap, one BLAS gemm)
@@ -232,12 +235,9 @@ impl<'a> FfnBackend for WalkFfn<'a> {
             self.trace_residuals.borrow_mut().push((layer, last_row));
         }
 
-        // Full mmap walk: gate + up + down all from mmap. Zero safetensor reads.
-        if self.index.has_full_mmap_ffn() {
-            if let Some(result) = self.walk_ffn_full_mmap(layer, x) {
-                return result;
-            }
-        }
+        // Full mmap path available but exact path (gate/up from safetensors + down from mmap)
+        // is faster due to better memory locality (safetensors are in one file).
+        // The full mmap path reads from 3 separate files = worse TLB behavior.
 
         // Partial mmap: gate/up from model weights + down from mmap.
         if self.index.has_down_features() {
