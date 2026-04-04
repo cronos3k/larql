@@ -83,6 +83,26 @@ Build the required vindex files:
 ```bash
 cargo run --release -p larql-vindex --example convert_gates_f32 -- path/to/vindex
 cargo run --release -p larql-vindex --example build_down_features -- path/to/vindex
+cargo run --release -p larql-vindex --example build_up_features -- path/to/vindex
+```
+
+### Walk-only mode
+
+Drop FFN weights — 16.6GB → 5.5GB:
+
+```rust
+let model = InferenceModel::load_walk_only("google/gemma-3-4b-it")?;
+// Frees 10.7 GB of FFN tensors. Requires down_features.bin + up_features.bin.
+```
+
+### Server
+
+```bash
+cargo run --release -p larql-server -- path/to/vindex --port 8080
+
+curl -X POST http://localhost:8080/v1/infer \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "The capital of France is", "top": 5, "mode": "walk"}'
 ```
 
 ## Examples

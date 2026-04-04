@@ -93,7 +93,15 @@ pub fn load_vindex_embeddings(dir: &Path) -> Result<(Array2<f32>, f32), VindexEr
 
     let embed_file = std::fs::File::open(dir.join("embeddings.bin"))?;
     let embed_mmap = unsafe { memmap2::Mmap::map(&embed_file)? };
-    let embed_floats = crate::config::dtype::decode_floats(&embed_mmap, config.dtype);
+    // Detect actual dtype from file size (may differ from index.json global dtype
+    // if gate vectors were converted to f32 but embeddings remain f16).
+    let expected_f32 = config.vocab_size * config.hidden_size * 4;
+    let actual_dtype = if embed_mmap.len() == expected_f32 {
+        crate::config::dtype::StorageDtype::F32
+    } else {
+        crate::config::dtype::StorageDtype::F16
+    };
+    let embed_floats = crate::config::dtype::decode_floats(&embed_mmap, actual_dtype);
 
     let embed = Array2::from_shape_vec((config.vocab_size, config.hidden_size), embed_floats)
         .map_err(|e| VindexError::Parse(e.to_string()))?;

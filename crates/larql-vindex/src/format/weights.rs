@@ -456,7 +456,14 @@ pub fn load_model_weights(
     callbacks.on_file_start("embeddings", &dir.join("embeddings.bin").display().to_string());
     let embed_file = std::fs::File::open(dir.join("embeddings.bin"))?;
     let embed_mmap = unsafe { memmap2::Mmap::map(&embed_file)? };
-    let embed_floats = crate::config::dtype::decode_floats(&embed_mmap, config.dtype);
+    // Detect actual dtype from file size (may differ from index.json global dtype)
+    let expected_embed_f32 = config.vocab_size * config.hidden_size * 4;
+    let embed_dtype = if embed_mmap.len() == expected_embed_f32 {
+        crate::config::dtype::StorageDtype::F32
+    } else {
+        crate::config::dtype::StorageDtype::F16
+    };
+    let embed_floats = crate::config::dtype::decode_floats(&embed_mmap, embed_dtype);
     let embed = Array2::from_shape_vec((config.vocab_size, config.hidden_size), embed_floats)
         .map_err(|e| VindexError::Parse(e.to_string()))?;
     callbacks.on_file_done("embeddings", config.vocab_size, 0.0);
@@ -499,7 +506,18 @@ pub fn load_model_weights(
         let byte_count = entry.length as usize;
         if byte_offset + byte_count > data.len() { continue; }
         let raw_bytes = &data[byte_offset..byte_offset + byte_count];
-        let floats = crate::config::dtype::decode_floats(raw_bytes, config.dtype);
+        // Detect actual dtype from byte count vs expected shape.
+        // Gate vector conversion may have changed index.json dtype to f32
+        // while weight files remain f16.
+        let expected_floats: usize = entry.shape.iter().product();
+        let actual_dtype = if byte_count == expected_floats * 4 {
+            crate::config::dtype::StorageDtype::F32
+        } else if byte_count == expected_floats * 2 {
+            crate::config::dtype::StorageDtype::F16
+        } else {
+            config.dtype // fallback to global
+        };
+        let floats = crate::config::dtype::decode_floats(raw_bytes, actual_dtype);
 
         match entry.kind.as_str() {
             "tensor" => {

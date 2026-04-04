@@ -230,4 +230,22 @@ Attention × 34 layers   84ms     16%
 Framework overhead       7ms      1%
 ```
 
-Memory: no leaks, mmap-managed. Walk only needs ~3.5GB of model weights (attention + embeddings), not the full 16.6GB. See [FFN graph layer](ffn-graph-layer.md) for memory analysis details.
+Memory: no leaks, mmap-managed. Walk only needs ~5.5GB of model weights (attention + embeddings + norms), not the full 16.6GB. Use `InferenceModel::load_walk_only()` to drop FFN weights (saves 10.7GB).
+
+### Server
+
+Walk inference is served over HTTP via `larql-server`:
+
+```bash
+cargo run --release -p larql-server -- path/to/vindex --port 8080
+
+# Walk (faster than dense, mmap FFN)
+curl -X POST http://localhost:8080/v1/infer \
+  -d '{"prompt": "The capital of France is", "top": 5, "mode": "walk"}'
+
+# Compare (walk vs dense side-by-side, identical predictions)
+curl -X POST http://localhost:8080/v1/infer \
+  -d '{"prompt": "The capital of France is", "top": 3, "mode": "compare"}'
+```
+
+The server loads mmap'd feature-major vectors at startup. Walk inference uses zero-copy down projection from `down_features.bin`. See [FFN graph layer](ffn-graph-layer.md) for architecture details.

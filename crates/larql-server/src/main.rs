@@ -108,7 +108,7 @@ fn load_single_vindex(path_str: &str, no_infer: bool) -> Result<LoadedModel, Box
     let id = model_id_from_name(&model_name);
 
     let mut cb = SilentLoadCallbacks;
-    let index = VectorIndex::load_vindex(&path, &mut cb)?;
+    let mut index = VectorIndex::load_vindex(&path, &mut cb)?;
     let total_features: usize = config.layers.iter().map(|l| l.num_features).sum();
 
     let has_weights = config.has_model_weights
@@ -119,6 +119,18 @@ fn load_single_vindex(path_str: &str, no_infer: bool) -> Result<LoadedModel, Box
         "  Model: {} ({} layers, {} features)",
         model_name, config.num_layers, total_features
     );
+
+    // Load mmap'd feature-major vectors for walk FFN optimization
+    match index.load_down_features(&path) {
+        Ok(()) => info!("  Down features: loaded (mmap walk enabled)"),
+        Err(_) => info!("  Down features: not available"),
+    }
+    match index.load_up_features(&path) {
+        Ok(()) => info!("  Up features: loaded (full mmap FFN)"),
+        Err(_) => {}
+    }
+    index.warmup();
+    info!("  Warmup: done");
 
     let (embeddings, embed_scale) = load_vindex_embeddings(&path)?;
     info!("  Embeddings: {}x{}", embeddings.shape()[0], embeddings.shape()[1]);

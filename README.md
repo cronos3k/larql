@@ -350,9 +350,13 @@ cargo run --release -p larql-inference --example backend_demo --features metal  
 cargo run --release -p larql-inference --example bench_backend --features metal  # backend benchmarks
 cargo run --release -p larql-inference --example bench_inference   # full inference benchmarks
 
-# Vindex tools
-cargo run --release -p larql-vindex --example convert_gates_f32 -- path/to/vindex  # f16→f32 gate vectors
-cargo run --release -p larql-vindex --example build_down_features -- path/to/vindex # feature-major down vectors
+# Vindex tools (build once, enables mmap walk)
+cargo run --release -p larql-vindex --example convert_gates_f32 -- path/to/vindex   # f16→f32 gate vectors
+cargo run --release -p larql-vindex --example build_down_features -- path/to/vindex  # feature-major down vectors
+cargo run --release -p larql-vindex --example build_up_features -- path/to/vindex    # feature-major up vectors
+
+# Server (walk inference over HTTP)
+cargo run --release -p larql-server -- path/to/vindex --port 8080
 
 # Vindex and LQL examples
 cargo run -p larql-vindex --example vindex_demo    # vindex feature demo

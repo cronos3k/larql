@@ -551,4 +551,32 @@ impl GateIndex for PatchedVindex {
     fn down_override(&self, layer: usize, feature: usize) -> Option<&[f32]> {
         self.base.down_override(layer, feature)
     }
+
+    fn down_feature_vector(&self, layer: usize, feature: usize) -> Option<&[f32]> {
+        self.base.down_feature_vector(layer, feature)
+    }
+
+    fn has_down_features(&self) -> bool {
+        self.base.has_down_features()
+    }
+
+    fn down_layer_matrix(&self, layer: usize) -> Option<ndarray::ArrayView2<'_, f32>> {
+        self.base.down_layer_matrix(layer)
+    }
+
+    fn gate_scores_batch(&self, layer: usize, x: &ndarray::Array2<f32>) -> Option<ndarray::Array2<f32>> {
+        self.base.gate_scores_batch(layer, x)
+    }
+
+    fn up_layer_matrix(&self, layer: usize) -> Option<ndarray::ArrayView2<'_, f32>> {
+        self.base.up_layer_matrix(layer)
+    }
+
+    fn has_full_mmap_ffn(&self) -> bool {
+        self.base.has_full_mmap_ffn()
+    }
+
+    fn gate_knn_batch(&self, layer: usize, x: &ndarray::Array2<f32>, top_k: usize) -> Vec<usize> {
+        self.base.gate_knn_batch(layer, x, top_k)
+    }
 }

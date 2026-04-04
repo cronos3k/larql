@@ -255,13 +255,46 @@ cargo run --release -p larql-vindex --example build_down_features -- path/to/vin
 | `attention.rs` | BLAS-fused attention + shared attention block |
 | `forward.rs` | Forward pass: embed → layers → logits |
 
+### Server
+
+Walk inference is available via HTTP:
+
+```bash
+# Start server with mmap walk enabled
+cargo run --release -p larql-server -- path/to/vindex --port 8080
+
+# Walk inference (faster than dense)
+curl -X POST http://localhost:8080/v1/infer \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "The capital of France is", "top": 5, "mode": "walk"}'
+
+# Compare walk vs dense (identical predictions, walk faster)
+curl -X POST http://localhost:8080/v1/infer \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "The capital of France is", "top": 3, "mode": "compare"}'
+```
+
+Modes: `walk` (default, mmap FFN), `dense` (full matmul), `compare` (both side-by-side).
+
+### Walk-only mode
+
+Drop FFN weights from memory — 16.6GB → 5.5GB:
+
+```rust
+let model = InferenceModel::load_walk_only("google/gemma-3-4b-it")?;
+// 10.7 GB of FFN weights freed
+// Requires down_features.bin + up_features.bin in vindex
+```
+
 ### Tools and benchmarks
 
 | File | Purpose |
 |------|---------|
+| `larql-server` | HTTP server with walk/dense/compare inference modes |
 | `larql-vindex/examples/convert_gates_f32.rs` | f16 → f32 gate vector converter |
 | `larql-vindex/examples/build_down_features.rs` | Feature-major down vector builder |
 | `larql-vindex/examples/build_up_features.rs` | Feature-major up vector builder |
 | `larql-inference/examples/bench_walk_inference.rs` | Walk benchmark (dense vs walk vs HNSW) |
 | `larql-inference/examples/walk_boundary_sweep.rs` | Correctness sweep (all 34 layers) |
 | `larql-inference/examples/profile_overhead.rs` | Forward pass bottleneck profiler |
+| `larql-inference/examples/memory_analysis.rs` | Memory profiling (RSS, mmap, walk-only) |
