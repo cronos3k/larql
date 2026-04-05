@@ -140,6 +140,30 @@ fn main() {
         let _ = dfs(&algo_graph, "N0", 5);
     });
 
+    bench("connected_components (1000 nodes)", 100, || {
+        let _ = connected_components(&algo_graph);
+    });
+
+    bench("are_connected (1000 nodes)", 1_000, || {
+        let _ = are_connected(&algo_graph, "N0", "N500");
+    });
+
+    bench("walk_all_paths (3 hops, max 10)", 100, || {
+        let _ = walk_all_paths(&algo_graph, "N0", &["connects", "connects", "connects"], 10);
+    });
+
+    // ── Filter ──
+    println!("\n--- Filter ---\n");
+    {
+        let config = FilterConfig {
+            min_confidence: Some(0.85),
+            ..Default::default()
+        };
+        bench("filter_graph (100K, confidence>0.85)", 3, || {
+            let _ = filter_graph(&graph, &config);
+        });
+    }
+
     // ── Merge ──
     println!("\n--- Merge ---\n");
     // Merge: build fresh each time since Graph doesn't implement Clone
@@ -178,11 +202,22 @@ fn main() {
         let _ = from_bytes(&msgpack_bytes, Format::MessagePack).unwrap();
     });
 
+    bench("Packed binary serialize", 3, || {
+        let _ = to_packed_bytes(&graph).unwrap();
+    });
+
+    let packed_bytes = to_packed_bytes(&graph).unwrap();
+    bench("Packed binary deserialize", 3, || {
+        let _ = from_packed_bytes(&packed_bytes).unwrap();
+    });
+
     println!(
-        "\n  Size: JSON {:.1} MB, MsgPack {:.1} MB ({:.0}% smaller)",
+        "\n  Size: JSON {:.1} MB, MsgPack {:.1} MB ({:.0}%), Packed {:.1} MB ({:.0}%)",
         json_bytes.len() as f64 / 1024.0 / 1024.0,
         msgpack_bytes.len() as f64 / 1024.0 / 1024.0,
-        (1.0 - msgpack_bytes.len() as f64 / json_bytes.len() as f64) * 100.0
+        (1.0 - msgpack_bytes.len() as f64 / json_bytes.len() as f64) * 100.0,
+        packed_bytes.len() as f64 / 1024.0 / 1024.0,
+        (1.0 - packed_bytes.len() as f64 / json_bytes.len() as f64) * 100.0,
     );
 
     // ── Stats ──

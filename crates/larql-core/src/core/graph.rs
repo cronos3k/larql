@@ -181,7 +181,12 @@ impl Graph {
     }
 
     /// Multi-hop walk following a chain of relations.
-    /// Returns (final_entity, path) or None if any hop fails.
+    ///
+    /// At each hop, picks the edge with the **highest confidence** when multiple
+    /// edges match the same relation. Returns (final_entity, path) or None if
+    /// any hop has no matching edges.
+    ///
+    /// For all paths (not just highest-confidence), use `walk_all_paths()`.
     pub fn walk(&self, subject: &str, relations: &[&str]) -> Option<(String, Vec<Edge>)> {
         let mut current = subject.to_string();
         let mut path = Vec::new();
