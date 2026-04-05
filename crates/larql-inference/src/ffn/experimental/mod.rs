@@ -1,6 +1,9 @@
-//! Experimental FFN backends — alternative computation strategies.
+//! Experimental FFN backends — research artifacts, NOT for production.
 //!
-//! These were developed during FFN optimization research. Results:
+//! All backends in this module have known accuracy issues (0% or near-0%).
+//! They are preserved for reproducibility of research results.
+//!
+//! Results:
 //! - `graph`: Embedding-based feature selection. Wrong features (1.5% overlap).
 //! - `entity_routed`: Preselected features per entity. 4x FFN speed, 0% accuracy.
 //! - `clustered`: K-means gate clusters. Activations are distributed, not clustered.
@@ -8,8 +11,7 @@
 //! - `down_clustered`: Output-directed clusters. 0% accuracy.
 //! - `feature_list`: Precomputed feature lists. Cascade drift kills accuracy.
 //!
-//! The production FFN path is `WalkFfn` in `vector_index.rs` which delegates
-//! to `WeightFfn` (architecture-correct) with vindex trace capture.
+//! **Use instead:** `WalkFfn` (sparse mmap'd walk) or `WeightFfn` (dense, exact).
 
 pub mod cached;
 pub mod clustered;

@@ -63,7 +63,7 @@ mod test_residual {
 }
 
 mod test_ffn {
-    use larql_inference::ffn::{silu_gate_up, sigmoid};
+    use larql_inference::ffn::silu_gate_up;
     use ndarray::Array2;
 
     /// SiLU-gated FFN helper for unit tests (no model architecture needed).

@@ -7,7 +7,7 @@
 
 use std::time::Instant;
 use ndarray::Array2;
-use larql_inference::{InferenceModel, WeightFfn};
+use larql_inference::InferenceModel;
 use larql_inference::forward::forward_to_layer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n = 20;
 
     // 1. Pure gate gemv (one matrix read)
-    let gate_view = if index.has_interleaved() {
+    let _gate_view = if index.has_interleaved() {
         index.interleaved_gate(13).unwrap()
     } else {
         // gate_scores_batch uses internal gate mmap

@@ -14,6 +14,7 @@ use crate::graph_ffn::GateIndex;
 /// 1. Construction: input embedding → top-N tokens (one-time embedding projection)
 /// 2. Per-layer forward: token_ids → GateIndex hash lookup → feature_ids
 /// 3. Gather gate+up rows for selected features, compute SiLU(gate)*up, sparse down
+#[deprecated(note = "Research artifact — not scalable. Use WalkFfn.")]
 pub struct EntityRoutedFfn<'a> {
     pub weights: &'a ModelWeights,
     pub gate_index: &'a GateIndex,

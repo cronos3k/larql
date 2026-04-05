@@ -151,7 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Softmax+topk:     {softmax_ms:.1}ms  (262K vocab)");
 
     // ── All 34 FFN layers sequential (cache pressure test) ──
-    let mut ffn_norms: Vec<Array2<f32>> = (0..num_layers).map(|layer| {
+    let ffn_norms: Vec<Array2<f32>> = (0..num_layers).map(|layer| {
         let h_l = forward_to_layer(weights, &token_ids, layer);
         apply_norm(weights, &h_l, &weights.arch.post_attention_layernorm_key(layer), norm_offset)
     }).collect();

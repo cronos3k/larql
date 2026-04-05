@@ -97,7 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── 4. Summary ──
     println!("\n  Q4 impact assessment:");
-    let q4_snr = avg_rmse / total_max_error as f64;
+    let _q4_snr = avg_rmse / total_max_error as f64;
     println!("    At RMSE {avg_rmse:.6}, the Q4 error is {:.1}% of weight max",
         total_max_error as f64 / weights.tensors.get(&weights.arch.attn_q_key(0))
             .map(|w| w.as_slice().unwrap().iter().map(|v| v.abs()).fold(0.0f32, f32::max))

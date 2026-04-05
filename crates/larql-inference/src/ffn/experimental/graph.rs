@@ -9,6 +9,7 @@ use crate::graph_ffn::GateIndex;
 ///
 /// Runtime: residual → embedding projection → token lookup → feature list → sparse up/down.
 /// Eliminates the gate matmul (500ms → ~0.01ms for the lookup).
+#[deprecated(note = "Research artifact — not scalable. Use WalkFfn.")]
 pub struct GraphFfn<'a> {
     pub weights: &'a ModelWeights,
     pub gate_index: &'a GateIndex,

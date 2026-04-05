@@ -15,8 +15,8 @@ use std::time::Instant;
 
 use larql_inference::{
     predict, predict_with_graph, predict_with_graph_vindex_logits,
-    InferenceModel, WeightFfn, DenseLayerGraph, WalkLayerGraph,
-    CachedLayerGraph, build_adaptive_graph, default_backend, cpu_backend,
+    InferenceModel, WeightFfn, WalkLayerGraph,
+    CachedLayerGraph, build_adaptive_graph, default_backend,
 };
 use larql_inference::vindex::WalkFfn;
 use larql_vindex::{SilentLoadCallbacks, VectorIndex};

@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use larql_inference::{
     predict, predict_with_ffn,
-    InferenceModel, WeightFfn,
+    InferenceModel,
     vindex::WalkFfn,
 };
 use larql_vindex::{SilentLoadCallbacks, VectorIndex};

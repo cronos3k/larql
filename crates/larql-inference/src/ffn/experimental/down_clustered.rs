@@ -17,6 +17,7 @@ struct DownClusters {
 
 /// Down-clustered gate index: features grouped by what they OUTPUT.
 /// Runtime: residual → nearest down centroids → candidate features → sparse gate/up/down.
+#[deprecated(note = "Research artifact — not scalable. Use WalkFfn.")]
 pub struct DownClusteredIndex {
     layers: HashMap<usize, DownClusters>,
     pub num_clusters: usize,
@@ -116,6 +117,7 @@ impl DownClusteredIndex {
 
 /// Down-clustered FFN backend: selects features by output direction, then computes
 /// actual gate/up/down for those features only. No gate scan.
+#[deprecated(note = "Research artifact — not scalable. Use WalkFfn.")]
 pub struct DownClusteredFfn<'a> {
     pub weights: &'a ModelWeights,
     pub down_index: &'a DownClusteredIndex,

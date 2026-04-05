@@ -13,6 +13,7 @@ struct LayerClusters {
 }
 
 /// Clustered gate index: K-means on gate vectors per layer.
+#[deprecated(note = "Research artifact — 0% accuracy. Use WalkFfn.")]
 pub struct ClusteredGateIndex {
     layers: HashMap<usize, LayerClusters>,
     pub num_clusters: usize,
@@ -104,6 +105,7 @@ impl ClusteredGateIndex {
 }
 
 /// Clustered FFN backend.
+#[deprecated(note = "Research artifact — 0% accuracy. Use WalkFfn.")]
 pub struct ClusteredFfn<'a> {
     pub weights: &'a ModelWeights,
     pub cluster_index: &'a ClusteredGateIndex,

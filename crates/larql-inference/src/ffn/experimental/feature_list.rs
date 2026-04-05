@@ -8,6 +8,7 @@ use crate::model::ModelWeights;
 /// Stores precomputed feature lists per layer from a calibration forward pass.
 /// At query time: attention runs live, FFN uses these feature lists for sparse
 /// gate/up/down — no gate matmul scan.
+#[deprecated(note = "Research artifact — not scalable. Use WalkFfn.")]
 pub struct FeatureListFfn<'a> {
     pub weights: &'a ModelWeights,
     /// layer → sorted feature indices (the ~50 features the gate matmul would select)

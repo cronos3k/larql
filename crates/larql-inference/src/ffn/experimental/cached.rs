@@ -13,6 +13,7 @@ use crate::model::ModelWeights;
 /// Cached FFN backend: stores precomputed FFN output matrices per layer.
 /// Built by running a calibration forward pass for each entity.
 /// Runtime: ArcArray clone = refcount bump (no memcpy), no matrix multiplications.
+#[deprecated(note = "Research artifact — not scalable. Use WalkFfn.")]
 pub struct CachedFfn {
     /// layer → shared FFN output matrix. Clone is O(1) refcount bump.
     cache: HashMap<usize, ndarray::ArcArray2<f32>>,

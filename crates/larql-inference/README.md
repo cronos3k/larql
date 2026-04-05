@@ -26,7 +26,7 @@ println!("Top prediction: {} ({:.1}%)", result.predictions[0].0, result.predicti
 | `backend/` | MatMulBackend trait: CPU (Accelerate BLAS) and Metal GPU with auto-calibration |
 | `attention.rs` | BLAS-fused GQA attention with online softmax (no [seq,seq] allocation) |
 | `forward.rs` | Forward pass: `predict()`, `predict_with_ffn()`, `forward_to_layer()` |
-| `ffn/` | FFN evaluation: dense, sparse, highway, cached, experimental |
+| `ffn/` | FFN evaluation: dense, sparse, highway, route-guided (experimental backends deprecated) |
 | `residual.rs` | RMS norm, layer norm |
 | `trace/` | Residual stream decomposition and tiered storage |
 | `vindex/walk_ffn.rs` | WalkFfn: mmap'd FFN — faster than dense (517ms vs 535ms) |
@@ -148,8 +148,8 @@ cargo run --release -p larql-vindex --example build_down_features -- path/to/vin
 ## Tests
 
 ```bash
-# Inference tests (115 with Metal)
-cargo test -p larql-inference --features metal
+# Inference tests (109 tests)
+cargo test -p larql-inference
 
 # HNSW tests
 cargo test -p larql-vindex --test test_hnsw --release
@@ -178,11 +178,16 @@ cargo test -p larql-inference --test test_walker_utils      # 10 tests
 
 ```
 larql-models      ModelWeights, architecture traits, quant
-    |
-larql-vindex      VectorIndex (types, core, gate, walk, hnsw, mutate, router)
-    |
+larql-compute     ComputeBackend, Q4 matvec, Metal GPU (used by vindex + walk_ffn Q4 paths)
+larql-vindex      VectorIndex, gate KNN, adaptive residency, Q4 gates
+larql-core        Graph, Edge, algorithms (knowledge graph engine)
+    ↓
 larql-inference   Forward pass, attention, backends, WalkFfn
 ```
+
+> **Note:** larql-inference has its own `MatMulBackend` trait that predates `larql-compute::ComputeBackend`.
+> The Q4 walk paths in `walk_ffn.rs` use `larql_compute` directly. The f32 attention and FFN paths
+> use the inference-local `MatMulBackend`. A future consolidation will unify these under `ComputeBackend`.
 
 ### Vindex module structure
 
