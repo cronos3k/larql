@@ -276,6 +276,57 @@ impl VectorIndex {
 
     // warmup() is in gate.rs (it's a gate cache operation)
 
+    // ── Q4 gate vectors for fast KNN via larql-compute ──
+
+    /// Load Q4_0 gate vectors from gate_vectors_q4.bin.
+    ///
+    /// File layout: layers packed contiguously, each layer is
+    /// [num_features × hidden] in Q4_0 format (18 bytes per 32 elements).
+    /// The per-layer feature count comes from gate_mmap_slices (must load
+    /// f32/f16 gates first for the slice metadata, or pass feature counts).
+    pub fn load_gate_vectors_q4(&mut self, dir: &std::path::Path) -> Result<(), VindexError> {
+        let path = dir.join("gate_vectors_q4.bin");
+        if !path.exists() {
+            return Err(VindexError::Parse("gate_vectors_q4.bin not found".into()));
+        }
+        let file = std::fs::File::open(&path)?;
+        let mmap = unsafe { mmap_optimized(&file)? };
+
+        // Compute per-layer byte offsets from feature counts
+        let mut slices = Vec::with_capacity(self.num_layers);
+        let mut offset = 0usize;
+        for layer in 0..self.num_layers {
+            let num_features = self.num_features(layer);
+            let floats = num_features * self.hidden_size;
+            let q4_bytes = floats / 32 * 18; // Q4_0: 18 bytes per 32 elements
+            slices.push(super::types::GateQ4Slice {
+                byte_offset: offset,
+                byte_len: q4_bytes,
+                num_features,
+            });
+            offset += q4_bytes;
+        }
+
+        self.gate_q4_mmap = Some(Arc::new(mmap));
+        self.gate_q4_slices = slices;
+        Ok(())
+    }
+
+    /// Whether Q4 gate vectors are loaded.
+    pub fn has_gate_q4(&self) -> bool {
+        self.gate_q4_mmap.is_some()
+    }
+
+    /// Get Q4 data slice for a layer's gate vectors. Returns the raw Q4_0 bytes.
+    pub fn gate_q4_data(&self, layer: usize) -> Option<&[u8]> {
+        let mmap = self.gate_q4_mmap.as_ref()?;
+        let slice = self.gate_q4_slices.get(layer)?;
+        if slice.byte_len == 0 { return None; }
+        let end = slice.byte_offset + slice.byte_len;
+        if end > mmap.len() { return None; }
+        Some(&mmap[slice.byte_offset..end])
+    }
+
     // ── LM head (output projection) for vindex logits ──
 
     /// Load lm_head from lm_head.bin for KNN logit lookup.
@@ -320,12 +371,12 @@ impl VectorIndex {
         };
         let lm_view = ndarray::ArrayView2::from_shape((vocab, hidden), data).unwrap();
 
-        // gemv via larql-compute: scores = lm_head @ query → [vocab]
+        // gemv via larql-compute: scores = query @ lm_head^T → [1, vocab]
         let hidden = self.hidden_size;
         let x = query.view().into_shape_with_order((1, hidden)).unwrap();
         let cpu = larql_compute::CpuBackend;
         use larql_compute::ComputeBackend;
-        let result = cpu.matmul(x, lm_view); // [1, vocab]
+        let result = cpu.matmul_transb(x, lm_view); // [1, hidden] @ [vocab, hidden]^T → [1, vocab]
         let scores = ndarray::Array1::from_vec(result.into_raw_vec_and_offset().0);
 
         // Top-K selection

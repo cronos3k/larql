@@ -122,27 +122,10 @@ impl Parser {
         let mut band = None;
         let mut layer = None;
         let mut relations_only = false;
-        let mut mode = DescribeMode::default(); // Verbose
+        let mut mode = DescribeMode::default();
 
         loop {
             match self.peek() {
-                Token::Keyword(Keyword::All) => {
-                    self.advance();
-                    self.expect_keyword(Keyword::Layers)?;
-                    band = Some(LayerBand::All);
-                }
-                Token::Keyword(Keyword::Syntax) => {
-                    self.advance();
-                    band = Some(LayerBand::Syntax);
-                }
-                Token::Keyword(Keyword::Knowledge) => {
-                    self.advance();
-                    band = Some(LayerBand::Knowledge);
-                }
-                Token::Keyword(Keyword::Output) => {
-                    self.advance();
-                    band = Some(LayerBand::Output);
-                }
                 Token::Keyword(Keyword::At) => {
                     self.advance();
                     self.expect_keyword(Keyword::Layer)?;
@@ -165,7 +148,13 @@ impl Parser {
                     self.advance();
                     mode = DescribeMode::Raw;
                 }
-                _ => break,
+                _ => {
+                    if let Some(b) = self.try_parse_layer_band() {
+                        band = Some(b);
+                    } else {
+                        break;
+                    }
+                }
             }
         }
 
@@ -200,23 +189,6 @@ impl Parser {
                     self.advance();
                     layers = Some(self.parse_range()?);
                 }
-                Token::Keyword(Keyword::All) => {
-                    self.advance();
-                    self.expect_keyword(Keyword::Layers)?;
-                    band = Some(LayerBand::All);
-                }
-                Token::Keyword(Keyword::Syntax) => {
-                    self.advance();
-                    band = Some(LayerBand::Syntax);
-                }
-                Token::Keyword(Keyword::Knowledge) => {
-                    self.advance();
-                    band = Some(LayerBand::Knowledge);
-                }
-                Token::Keyword(Keyword::Output) => {
-                    self.advance();
-                    band = Some(LayerBand::Output);
-                }
                 Token::Keyword(Keyword::Verbose) => {
                     self.advance();
                     verbose = true;
@@ -235,7 +207,13 @@ impl Parser {
                     self.expect_keyword(Keyword::Attention)?;
                     with_attention = true;
                 }
-                _ => break,
+                _ => {
+                    if let Some(b) = self.try_parse_layer_band() {
+                        band = Some(b);
+                    } else {
+                        break;
+                    }
+                }
             }
         }
 

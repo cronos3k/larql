@@ -20,7 +20,32 @@ impl Parser {
         let start = self.expect_u32()?;
         self.expect_token(&Token::Dash)?;
         let end = self.expect_u32()?;
+        if start > end {
+            return Err(ParseError(format!("invalid range: start ({start}) > end ({end})")));
+        }
         Ok(Range { start, end })
+    }
+
+    /// Try to parse a layer band keyword (ALL LAYERS, SYNTAX, KNOWLEDGE, OUTPUT).
+    /// Returns None if the current token is not a layer band keyword.
+    pub(crate) fn try_parse_layer_band(&mut self) -> Option<LayerBand> {
+        match self.peek() {
+            Token::Keyword(Keyword::All) => {
+                let saved = self.pos;
+                self.advance();
+                if self.check_keyword(Keyword::Layers) {
+                    self.advance();
+                    Some(LayerBand::All)
+                } else {
+                    self.pos = saved;
+                    None
+                }
+            }
+            Token::Keyword(Keyword::Syntax) => { self.advance(); Some(LayerBand::Syntax) }
+            Token::Keyword(Keyword::Knowledge) => { self.advance(); Some(LayerBand::Knowledge) }
+            Token::Keyword(Keyword::Output) => { self.advance(); Some(LayerBand::Output) }
+            _ => None,
+        }
     }
 
     pub(crate) fn parse_walk_mode(&mut self) -> Result<WalkMode, ParseError> {
@@ -111,7 +136,7 @@ impl Parser {
             }
             // Some field names collide with keywords (e.g. "layer", "confidence")
             Token::Keyword(kw) => {
-                let name = format!("{:?}", kw).to_lowercase();
+                let name = kw.as_field_name().to_string();
                 self.advance();
                 Ok(Field::Named(name))
             }
@@ -320,7 +345,7 @@ impl Parser {
                 Ok(())
             }
             // Also accept keywords that match field names
-            Token::Keyword(kw) if format!("{:?}", kw).eq_ignore_ascii_case(name) => {
+            Token::Keyword(kw) if kw.as_field_name().eq_ignore_ascii_case(name) => {
                 self.advance();
                 Ok(())
             }
@@ -337,7 +362,7 @@ impl Parser {
             }
             Token::Keyword(kw) => {
                 // Allow keywords as field names (e.g., "layer", "confidence", "relation")
-                let name = format!("{:?}", kw).to_lowercase();
+                let name = kw.as_field_name().to_string();
                 self.advance();
                 Ok(name)
             }

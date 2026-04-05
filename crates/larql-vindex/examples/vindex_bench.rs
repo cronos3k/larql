@@ -157,11 +157,11 @@ fn main() {
     println!("\n── MoE Scaling ──\n");
     for n_experts in [1, 2, 4, 8] {
         let total_features = features * n_experts;
-        let mut gate = Array2::<f32>::zeros((total_features, hidden));
-        // Fill with random-ish values
-        for i in 0..total_features {
-            gate[[i, i % hidden]] = 1.0;
-        }
+        let gate = Array2::from_shape_fn((total_features, hidden), |(r, c)| {
+            let seed = (r * hidden + c) as u64;
+            let h = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (h >> 33) as f32 / (u32::MAX as f32) * 2.0 - 1.0
+        });
         let moe_idx = VectorIndex::new(
             vec![Some(gate)],
             vec![None],
@@ -398,6 +398,33 @@ fn main() {
             let full_gb = param_count * 2.0 / 1_073_741_824.0;
             println!("  │ {:20} {:>48.0} GB │", m.name, full_gb);
         }
+        println!("  │                                                                                  │");
+
+        // ── Headline: RAM reduction table ──
+        println!("  │ THE HEADLINE: RAM reduction with vindex                                          │");
+        println!("  │                                                                                  │");
+        println!("  │ {:20} {:>14} {:>14} {:>8}                        │",
+            "Model", "Full Infer", "Vindex Infer", "Ratio");
+        for m in &models {
+            let param_count: f64 = match m.total_params {
+                "4B" => 4e9, "8B" => 8e9, "70B" => 70e9, "405B" => 405e9,
+                "141B" => 141e9, "120B" => 120e9, "671B" => 671e9,
+                _ => 1000e9,
+            };
+            let full_gb = param_count * 2.0 / 1_073_741_824.0;
+            let features_per_layer = m.intermediate * m.num_experts;
+            let gate_bytes = m.layers as f64 * features_per_layer as f64 * m.hidden as f64 * 2.0;
+            let gate_gb = gate_bytes / 1_073_741_824.0;
+            let gate_per_layer = gate_gb / m.layers as f64;
+            let attn_per_layer = 4.0 * m.hidden as f64 * m.hidden as f64 * 2.0 / 1_073_741_824.0;
+            let embed_gb = (m.hidden as f64 * 262144.0 * 2.0 / 1_073_741_824.0).min(5.0);
+            let infer_gb = gate_per_layer + attn_per_layer + embed_gb;
+            let ratio = full_gb / infer_gb;
+            println!("  │ {:20} {:>10.0} GB {:>10.1} GB {:>6.0}x                        │",
+                m.name, full_gb, infer_gb, ratio);
+        }
+        println!("  │                                                                                  │");
+        println!("  │ A 1T model in 10.9 GB on a laptop.                                               │");
         println!("  │                                                                                  │");
         println!("  │ Browse RAM  = 1 layer of gate vectors (mmap, sequential walk)                     │");
         println!("  │ Infer RAM   = 1 layer gate + 1 layer attn + embeddings (mmap sequential)        │");

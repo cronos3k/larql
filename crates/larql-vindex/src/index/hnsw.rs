@@ -49,6 +49,8 @@ pub struct HnswLayer {
     node_levels: Vec<u8>,
     level0: Vec<u32>,
     upper: Vec<Vec<u32>>,
+    /// Random projection matrix: [dim, PROJ_DIM] for query projection.
+    proj_matrix: Array2<f32>,
     /// Projected vectors: [num_vectors, PROJ_DIM] for fast graph traversal.
     projected: Array2<f32>,
 }
@@ -70,6 +72,7 @@ impl HnswLayer {
                 num_vectors: 0, m, m_max0, max_level: 0,
                 entry_point: 0, node_levels: vec![],
                 level0: vec![], upper: vec![],
+                proj_matrix: Array2::zeros((0, PROJ_DIM)),
                 projected: Array2::zeros((0, PROJ_DIM)),
             };
         }
@@ -101,7 +104,7 @@ impl HnswLayer {
         let mut index = Self {
             num_vectors: n, m, m_max0, max_level,
             entry_point, node_levels, level0, upper,
-            projected,
+            proj_matrix, projected,
         };
 
         // Build graph using projected vectors (dim=64, fast).
@@ -163,32 +166,29 @@ impl HnswLayer {
 
         let ef = ef_search.max(top_k);
 
-        // Project query to low-dim for graph traversal
-        let _proj_view = self.projected.view();
-        // Compute projected query: query @ proj_matrix
-        // We don't store the projection matrix, so compute projected query
-        // by dotting against each projected vector during search.
-        // Actually, we need the projected query. Let's store it.
-        // For now: use the projected vectors directly in search_level.
-        // The query projection is implicit — we search using projected distances.
+        // Project query to low-dim (PROJ_DIM) for fast graph traversal
+        let proj_view = self.projected.view();
+        let proj_query = query.dot(&self.proj_matrix);
 
-        // Search using projected vectors for traversal
+        // Upper levels: greedy descent using projected vectors (dim=64, fast)
         let mut ep = self.entry_point;
-        // Project query for traversal (approximate)
-        // Since we don't store proj_matrix, use a different approach:
-        // Traverse using full-dim dot products for greedy descent (only ~log(N) calls)
-        // then use projected for level-0 beam search
         for lev in (1..=self.max_level).rev() {
-            ep = self.greedy_closest(vectors, &query.view(), ep, lev);
+            ep = self.greedy_closest(&proj_view, &proj_query.view(), ep, lev);
         }
 
-        // Level 0 beam search with full-dim vectors (ef comparisons)
-        let candidates = self.search_level(vectors, &query.view(), ep, ef, 0);
+        // Level 0: beam search using projected vectors (ef comparisons at dim=64)
+        let candidates = self.search_level(&proj_view, &proj_query.view(), ep, ef, 0);
 
-        candidates.into_iter()
-            .take(top_k)
-            .map(|s| (s.id as usize, s.score))
-            .collect()
+        // Re-score final candidates with exact full-dim dot products
+        let mut results: Vec<(usize, f32)> = candidates.into_iter()
+            .map(|s| {
+                let exact_score = Self::dot(&vectors.row(s.id as usize), &query.view());
+                (s.id as usize, exact_score)
+            })
+            .collect();
+        results.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        results.truncate(top_k);
+        results
     }
 
     /// Generate a random projection matrix [dim, proj_dim].

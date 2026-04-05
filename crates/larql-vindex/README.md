@@ -14,7 +14,7 @@ let index = VectorIndex::load_vindex(&path, &mut SilentLoadCallbacks)?;
 let mut patched = PatchedVindex::new(index);
 
 // Query — which features fire for "France"?
-let hits = patched.gate_knn(layer, &query, 10);  // 0.008ms/layer
+let hits = patched.gate_knn(layer, &query, 10);  // 2.7ms/layer at full dim
 
 // Walk — multi-layer feature scan
 let trace = patched.walk(&query, &layers, 10);
@@ -31,10 +31,27 @@ let baked = patched.bake_down();
 baked.save_vindex(&output_path, &mut config)?;
 ```
 
+## The Headline
+
+A 1T model in 10.9 GB on a laptop.
+
+```
+Model          Full Inference RAM    Vindex Infer RAM    Ratio
+Gemma 3 4B              7 GB              1.3 GB          5x
+Llama 3 8B             15 GB              2.2 GB          7x
+Llama 3 70B           130 GB              4.9 GB         27x
+Llama 3 405B          754 GB              8.6 GB         88x
+DeepSeek V3          1250 GB             10.9 GB        115x
+Kimi-K2              1863 GB             10.9 GB        171x
+```
+
+Vindex inference uses mmap: only 1 layer of gate vectors + 1 layer of attention
+weights are resident at a time. The rest stays on disk until touched.
+
 ## Features
 
 - **Extract** from safetensors, GGUF, or MLX models (streaming — no full model load)
-- **Gate KNN** via BLAS matmul — 0.008ms per layer
+- **Gate KNN** via BLAS matmul, Q4 matvec (CPU/Metal/CUDA), or HNSW approximate search
 - **Walk** across all layers with down-meta annotation
 - **Readonly base** — base vindex files are never modified after extraction
 - **Patch overlay** — all mutations go through PatchedVindex (INSERT/DELETE/UPDATE)
@@ -49,6 +66,7 @@ baked.save_vindex(&output_path, &mut config)?;
 - **Layer bands** — per-family boundaries (Gemma, Llama, Qwen, etc.)
 - **Checksums** — SHA256 integrity verification for all binary files
 - **Provenance** — model source, timestamp, version tracking
+- **LM head KNN** — top-K token lookup via single BLAS gemv against output projection
 
 ## Crate Structure
 
@@ -57,14 +75,20 @@ larql-vindex/src/
 ├── lib.rs                      Crate root + re-exports
 ├── error.rs                    VindexError
 ├── describe.rs                 DescribeEdge, LabelSource
+├── mmap_util.rs                madvise-optimized mmap helper
 │
 ├── config/                     Configuration types
 │   ├── types.rs                VindexConfig, ExtractLevel, LayerBands, MoeConfig
 │   └── dtype.rs                StorageDtype (f32/f16), encode/decode
 │
 ├── index/                      In-memory KNN engine (zero-copy mmap)
-│   ├── core.rs                 VectorIndex, FeatureMeta, gate_knn, walk
-│   └── mutate.rs               set/delete features, save to disk
+│   ├── core.rs                 VectorIndex construction + loading
+│   ├── types.rs                FeatureMeta, GateIndex trait, WalkHit, WalkTrace
+│   ├── gate.rs                 Gate KNN (brute-force, batched, HNSW, expert-scoped)
+│   ├── hnsw.rs                 HNSW graph index (random projection, exact rescoring)
+│   ├── walk.rs                 Feature-major down/up vectors, interleaved, Q4, lm_head
+│   ├── mutate.rs               set/delete features, save to disk
+│   └── router.rs               MoE expert router
 │
 ├── format/                     Vindex file I/O
 │   ├── load.rs                 load_vindex, load_embeddings, load_tokenizer
@@ -84,7 +108,7 @@ larql-vindex/src/
 │   └── core.rs                 VindexPatch, PatchOp, PatchedVindex
 │
 ├── clustering/                 Relation discovery
-│   ├── kmeans.rs               k-means clustering
+│   ├── kmeans.rs               k-means clustering (BLAS via larql-compute)
 │   ├── labeling.rs             Pattern detection, TF-IDF labels
 │   ├── categories.rs           Entity category word lists
 │   ├── pair_matching.rs        Wikidata/WordNet output matching
@@ -92,10 +116,24 @@ larql-vindex/src/
 │
 └── vindexfile/                 Declarative model builds
     ├── mod.rs                  Build executor (FROM + PATCH + INSERT → bake_down)
-    └── parser.rs               Vindexfile parser (FROM, PATCH, INSERT, DELETE, LABELS, EXPOSE, STAGE)
+    └── parser.rs               Vindexfile parser (FROM, PATCH, INSERT, DELETE, etc.)
 ```
 
-Model loading (safetensors, GGUF, MLX) and quantization (f16, Q4_0, MXFP4) live in `larql-models`.
+All matrix operations go through `larql-compute` (BLAS on CPU, Metal GPU planned for gate KNN).
+
+## Compute Integration
+
+| Module | Operation | Backend |
+|--------|-----------|---------|
+| gate.rs | Gate KNN f32 (matmul_transb) | CPU BLAS |
+| gate.rs | Gate KNN Q4 (q4_matvec) | Any ComputeBackend |
+| gate.rs | Gate walk (gemv) | CPU BLAS |
+| gate.rs | Batch gate scores (matmul_transb) | CPU BLAS |
+| hnsw.rs | Random projection (matmul) | CPU BLAS |
+| hnsw.rs | Dot product (graph traversal) | CPU BLAS |
+| walk.rs | LM head KNN (matmul_transb) | CPU BLAS |
+| kmeans.rs | Similarity matrix (matmul_transb) | CPU BLAS |
+| router.rs | MoE routing (matmul) | CPU BLAS |
 
 ## Supported Architectures
 
@@ -104,7 +142,7 @@ Model loading (safetensors, GGUF, MLX) and quantization (f16, Q4_0, MXFP4) live 
 | Gemma | Gemma 2/3 (2B-27B) | Gated (GeGLU) |
 | Llama | Llama 2/3 (7B-405B) | Gated (SiLU) |
 | Mistral | Mistral 7B | Gated (SiLU) |
-| Mixtral | Mixtral 8x7B | MoE (8 experts) |
+| Mixtral | Mixtral 8x7B/8x22B | MoE (8 experts) |
 | Qwen | Qwen 2/2.5 | Gated (SiLU) |
 | Phi | Phi 2/3 | Gated |
 | DeepSeek | DeepSeek V2/V3 | MoE (shared + routed) |
@@ -114,7 +152,8 @@ Model loading (safetensors, GGUF, MLX) and quantization (f16, Q4_0, MXFP4) live 
 
 ```
 model.vindex/
-├── gate_vectors.bin        W_gate per layer (KNN index)
+├── gate_vectors.bin        W_gate per layer (f32/f16 KNN index)
+├── gate_vectors_q4.bin     W_gate Q4_0 (7x smaller, for Q4 KNN)
 ├── embeddings.bin          W_embed matrix
 ├── down_meta.bin           Per-feature output metadata (binary)
 ├── attn_weights.bin        Q, K, V, O per layer
@@ -122,6 +161,8 @@ model.vindex/
 ├── down_weights.bin        W_down per layer
 ├── norms.bin               LayerNorm parameters
 ├── lm_head.bin             Output projection
+├── interleaved.bin         gate|up|down packed per layer (optional)
+├── interleaved_q4.bin      Q4_0 quantized version (optional, 7x smaller)
 ├── index.json              Config, layer bands, provenance, checksums
 ├── tokenizer.json          Tokenizer
 ├── relation_clusters.json  Discovered relation types
@@ -140,23 +181,63 @@ model.vindex/
 ## Testing
 
 ```bash
-cargo test -p larql-vindex                                  # 102 tests
-cargo run -p larql-vindex --example vindex_demo              # Feature showcase
-cargo run -p larql-vindex --example vindex_bench --release    # Benchmarks
+cargo test -p larql-vindex                                    # 84 tests
+cargo run -p larql-vindex --example vindex_demo               # Feature showcase
+cargo run -p larql-vindex --example vindex_bench --release     # Core benchmarks
+cargo run -p larql-vindex --example bench_scaling --release    # Production dimensions
 ```
 
 ## Benchmarks
 
+### Core operations (synthetic, reduced dimensions)
+
 | Operation | Latency |
 |---|---|
-| Gate KNN (per layer) | 0.008ms |
-| Walk (8 layers) | 0.088ms |
+| Gate KNN (per layer, 1024×256) | 0.029ms |
+| Walk (8 layers) | 0.23ms |
 | Feature lookup | <1ns |
-| Save gates (8 MB) | 1.1ms |
-| Load vindex | 8.1ms |
-| Mutate (meta + gate) | 617ns |
-| Checksum (SHA256) | 23ms |
-| MoE 8x scaling | 6.6x (sub-linear) |
+| Save gates (8 MB) | 1.4ms |
+| Load vindex (mmap) | 1.3ms |
+| Mutate (meta + gate) | 877ns |
+| Checksum (SHA256) | 19ms |
+| MoE 8x scaling | 16x (sub-linear) |
+
+### Production dimensions (M3 Max, synthetic data)
+
+| Model | Features | Hidden | f32 BLAS | Q4 CPU | Q4 Metal | Speedup | Walk 14L |
+|---|---|---|---|---|---|---|---|
+| Gemma 3 4B | 10,240 | 2,560 | 2.7ms | 0.96ms | **0.50ms** | 5x | 7.0ms |
+| Llama 3 8B | 14,336 | 4,096 | 15.7ms | 2.1ms | **0.95ms** | 17x | 15.2ms |
+| Llama 3 70B | 28,672 | 8,192 | 98.3ms | 8.2ms | **1.31ms** | **75x** | 63.1ms |
+
+Vindex provides Q4 gate data. Compute crate scores it. Same interface, any backend.
+
+### HNSW vs brute-force (dim=2560)
+
+| Features | Brute | HNSW | Winner |
+|---|---|---|---|
+| 1,024 | 0.18ms | 0.14ms | HNSW |
+| 4,096 | 2.3ms | 1.9ms | HNSW |
+| 10,240 | 2.6ms | 1.7ms | HNSW |
+| 28,672 | 18.8ms | 15.2ms | HNSW |
+
+### Memory (mmap, 34L × 4096 × 2560)
+
+| Metric | Value |
+|---|---|
+| Cold KNN (first access) | 0.39ms |
+| Warm KNN (paged) | 0.37ms |
+| Page fault overhead | 0.02ms |
+| Zero-copy mmap | true (0 bytes heap) |
+
+## Design Principles
+
+1. **Readonly base** — binary files on disk are never modified after extraction
+2. **Patch overlay** — all mutations via in-memory PatchedVindex
+3. **Zero-copy mmap** — gate vectors are sliced from the file, not loaded to heap
+4. **One file per matrix type** — gate, attn, up, down stored separately
+5. **Streaming extraction** — processes one layer at a time (~2 GB peak for 120B models)
+6. **All compute through larql-compute** — BLAS dispatch, no raw ndarray .dot() calls
 
 ## License
 

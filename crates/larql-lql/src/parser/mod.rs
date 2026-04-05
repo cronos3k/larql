@@ -15,8 +15,8 @@ use crate::ast::*;
 use crate::lexer::{Keyword, Token};
 
 pub struct Parser {
-    tokens: Vec<Token>,
-    pos: usize,
+    pub(crate) tokens: Vec<Token>,
+    pub(crate) pos: usize,
 }
 
 #[derive(Debug, Clone)]

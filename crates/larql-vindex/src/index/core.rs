@@ -72,6 +72,12 @@ pub struct VectorIndex {
     pub(crate) interleaved_mmap: Option<Arc<memmap2::Mmap>>,
     /// Q4_0 quantized interleaved FFN data (7x smaller, dequant on read).
     pub(crate) interleaved_q4_mmap: Option<Arc<memmap2::Mmap>>,
+
+    /// Q4_0 gate vectors mmap — for fast Q4 KNN via larql-compute.
+    /// Layout: layers packed contiguously, each [num_features, hidden] in Q4_0 format.
+    pub(crate) gate_q4_mmap: Option<Arc<memmap2::Mmap>>,
+    /// Per-layer byte offset + byte length in gate_q4_mmap.
+    pub(crate) gate_q4_slices: Vec<GateQ4Slice>,
 }
 
 impl Clone for VectorIndex {
@@ -102,6 +108,8 @@ impl Clone for VectorIndex {
             vocab_size: self.vocab_size,
             interleaved_mmap: self.interleaved_mmap.clone(),
             interleaved_q4_mmap: self.interleaved_q4_mmap.clone(),
+            gate_q4_mmap: self.gate_q4_mmap.clone(),
+            gate_q4_slices: self.gate_q4_slices.clone(),
         }
     }
 }
@@ -135,6 +143,8 @@ impl VectorIndex {
             vocab_size: 0,
             interleaved_mmap: None,
             interleaved_q4_mmap: None,
+            gate_q4_mmap: None,
+            gate_q4_slices: Vec::new(),
         }
     }
 
@@ -169,6 +179,8 @@ impl VectorIndex {
             vocab_size: 0,
             interleaved_mmap: None,
             interleaved_q4_mmap: None,
+            gate_q4_mmap: None,
+            gate_q4_slices: Vec::new(),
         }
     }
 
@@ -331,6 +343,8 @@ impl VectorIndex {
             vocab_size: 0,
             interleaved_mmap: None,
             interleaved_q4_mmap: None,
+            gate_q4_mmap: None,
+            gate_q4_slices: Vec::new(),
             num_layers,
             hidden_size,
         })

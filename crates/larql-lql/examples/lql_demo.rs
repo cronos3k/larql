@@ -180,6 +180,8 @@ SHOW MODELS;
         ("REMOVE PATCH", r#"REMOVE PATCH "test.vlp";"#),
         // Introspection
         ("SHOW RELATIONS", "SHOW RELATIONS AT LAYER 26 WITH EXAMPLES;"),
+        ("SHOW RELATIONS VERBOSE", "SHOW RELATIONS VERBOSE;"),
+        ("SHOW RELATIONS RAW", "SHOW RELATIONS RAW;"),
         ("SHOW LAYERS", "SHOW LAYERS RANGE 0-10;"),
         ("SHOW FEATURES", r#"SHOW FEATURES 26 WHERE relation = "capital" LIMIT 5;"#),
         ("SHOW MODELS", "SHOW MODELS;"),

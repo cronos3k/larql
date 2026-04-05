@@ -216,16 +216,12 @@ impl VectorIndex {
 
         let hidden = self.hidden_size;
 
-        // Per-feature dot products — scalar BLAS sdot (vector·vector, not matmul).
-        // This is the per-feature walk path. Matrix ops route through larql-compute.
+        // Single BLAS gemv: gate[N, hidden] × residual[hidden] → scores[N].
         let gate_view = ArrayView2::from_shape((num_features, hidden), gate_data).unwrap();
-        let mut scores = Vec::with_capacity(num_features);
-        for feat in 0..num_features {
-            scores.push(larql_compute::dot(&gate_view.row(feat), &residual.view()));
-        }
+        let scores = gemv(&gate_view, residual);
 
         // Top-K selection
-        let mut indexed: Vec<(usize, f32)> = scores.into_iter().enumerate().collect();
+        let mut indexed: Vec<(usize, f32)> = scores.iter().copied().enumerate().collect();
         let k = top_k.min(indexed.len());
         if k > 0 && k < indexed.len() {
             indexed.select_nth_unstable_by(k, |a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap());
@@ -662,6 +658,34 @@ impl VectorIndex {
 
         let results = hnsw.search(&view, residual, top_k, ef);
         Some(results)
+    }
+
+    /// Gate KNN via Q4 matvec — scored by a ComputeBackend.
+    ///
+    /// The vindex provides the raw Q4 data. The backend scores it.
+    /// Works with any backend: CPU C kernel, Metal GPU, CUDA, WASM.
+    ///
+    /// Returns None if Q4 gate data isn't loaded or backend doesn't support Q4.
+    pub fn gate_knn_q4(
+        &self,
+        layer: usize,
+        residual: &Array1<f32>,
+        top_k: usize,
+        backend: &dyn larql_compute::ComputeBackend,
+    ) -> Option<Vec<(usize, f32)>> {
+        if !backend.has_q4() { return None; }
+        let q4_data = self.gate_q4_data(layer)?;
+        let slice = self.gate_q4_slices.get(layer)?;
+        if slice.num_features == 0 { return None; }
+
+        let (q8_x, q8_scales) = larql_compute::cpu::q4::quantize_to_q8(residual.as_slice().unwrap());
+        let scores_vec = backend.q4_matvec(
+            q4_data, &q8_x, &q8_scales,
+            slice.num_features, self.hidden_size,
+        )?;
+
+        let scores = Array1::from_vec(scores_vec);
+        Some(Self::top_k_from_scores(&scores, top_k))
     }
 
     /// Number of features at a layer (works in both heap and mmap mode).

@@ -129,6 +129,82 @@ pub enum Keyword {
 }
 
 impl Keyword {
+    /// Map a keyword to its lowercase field name for use in conditions/assignments.
+    /// Only keywords that commonly appear as column names are mapped.
+    pub(crate) fn as_field_name(&self) -> &'static str {
+        match self {
+            Self::Layer => "layer",
+            Self::Layers => "layers",
+            Self::Confidence => "confidence",
+            Self::Relation => "relation",
+            Self::Relations => "relations",
+            Self::Features => "features",
+            Self::Model => "model",
+            Self::Mode => "mode",
+            Self::Format => "format",
+            Self::Output => "output",
+            Self::Range => "range",
+            Self::Set => "set",
+            Self::Order => "order",
+            Self::Limit => "limit",
+            Self::Top => "top",
+            Self::All => "all",
+            Self::Desc => "desc",
+            Self::Asc => "asc",
+            Self::From => "from",
+            Self::Into => "into",
+            Self::Where => "where",
+            Self::And => "and",
+            Self::Or => "or",
+            Self::Not => "not",
+            Self::In => "in",
+            Self::Like => "like",
+            Self::Between => "between",
+            Self::By => "by",
+            Self::At => "at",
+            Self::On => "on",
+            Self::With => "with",
+            Self::Without => "without",
+            Self::To => "to",
+            Self::Current => "current",
+            Self::Values => "values",
+            Self::Edges => "edges",
+            // Statement keywords — unlikely as field names but cover all cases
+            _ => match self {
+                Self::Extract => "extract", Self::Compile => "compile",
+                Self::Diff => "diff", Self::Use => "use",
+                Self::Walk => "walk", Self::Select => "select",
+                Self::Describe => "describe", Self::Explain => "explain",
+                Self::Insert => "insert", Self::Delete => "delete",
+                Self::Update => "update", Self::Merge => "merge",
+                Self::Show => "show", Self::Stats => "stats",
+                Self::Infer => "infer", Self::Trace => "trace",
+                Self::Compare => "compare", Self::Models => "models",
+                Self::Components => "components", Self::Conflict => "conflict",
+                Self::KeepSource => "keepsource", Self::KeepTarget => "keeptarget",
+                Self::HighestConfidence => "highestconfidence",
+                Self::Examples => "examples", Self::Only => "only",
+                Self::Verbose => "verbose", Self::Brief => "brief", Self::Raw => "raw",
+                Self::Nearest => "nearest", Self::Pure => "pure",
+                Self::Hybrid => "hybrid", Self::Dense => "dense",
+                Self::Safetensors => "safetensors", Self::Gguf => "gguf",
+                Self::AutoExtract => "auto_extract",
+                Self::FfnGate => "ffn_gate", Self::FfnDown => "ffn_down",
+                Self::FfnUp => "ffn_up", Self::Embeddings => "embeddings",
+                Self::AttnOv => "attn_ov", Self::AttnQk => "attn_qk",
+                Self::Syntax => "syntax", Self::Knowledge => "knowledge",
+                Self::Weights => "weights", Self::Inference => "inference",
+                Self::Begin => "begin", Self::Save => "save",
+                Self::Apply => "apply", Self::Remove => "remove",
+                Self::Patch => "patch", Self::Patches => "patches",
+                Self::Remote => "remote", Self::Answer => "answer",
+                Self::Decompose => "decompose", Self::Positions => "positions",
+                Self::Attention => "attention",
+                _ => unreachable!(),
+            }
+        }
+    }
+
     fn from_str(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
             "EXTRACT" => Some(Self::Extract),

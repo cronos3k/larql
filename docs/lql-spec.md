@@ -232,10 +232,10 @@ DESCRIBE <entity>
 --   ALL LAYERS: show all three bands
 --
 -- Display modes:
---   VERBOSE (default): relation labels in [brackets], also-tokens,
---                      layer ranges, multi-layer hit counts.
---                      Labelled features show [relation], unlabelled show [—].
---   BRIEF:   compact view — top edges only, primary layer, no also-tokens.
+--   BRIEF (default): compact view — top edges only, primary layer, no also-tokens.
+--   VERBOSE: relation labels in [brackets], also-tokens,
+--            layer ranges, multi-layer hit counts.
+--            Labelled features show [relation], unlabelled show [—].
 --   RAW:     no probe/cluster labels — pure model signal with also-tokens.
 --
 -- Layer band boundaries are model-specific, stored in index.json:
@@ -256,10 +256,10 @@ DESCRIBE <entity>
 -- layer range, occurrence count, and "also:" variant tokens.
 
 DESCRIBE "France";
--- Verbose by default: relation labels, also-tokens, layer ranges
+-- Brief by default: compact, top edges, primary layer only
 
-DESCRIBE "France" BRIEF;
--- Compact: top edges, primary layer only
+DESCRIBE "France" VERBOSE;
+-- Full detail: relation labels, also-tokens, layer ranges
 
 DESCRIBE "France" RAW;
 -- No labels — pure model signal
@@ -493,6 +493,12 @@ COMPILE CURRENT INTO VINDEX "gemma3-4b-medical.vindex";
 SHOW RELATIONS
     [AT LAYER <n>]
     [WITH EXAMPLES]
+    [{VERBOSE | BRIEF | RAW}]
+
+-- Display modes:
+--   BRIEF (default): probe-confirmed relations only.
+--   VERBOSE: probe-confirmed relations + raw output tokens with scores/layers.
+--   RAW:     raw output tokens only, no probe labels.
 
 SHOW LAYERS
     [RANGE <start>-<end>]
@@ -820,10 +826,21 @@ These are estimates. The actual boundaries are discoverable via `SHOW LAYERS` �
 
 ### 5.4 DESCRIBE Output Format
 
-**Verbose (default):** relation labels in brackets, also-tokens, layer ranges.
+**Brief (default):** compact, top edges only.
 
 ```
 larql> DESCRIBE "France";
+France
+  Edges (L14-27):
+                 → Paris                    9.2  L27
+                 → français                14.7  L23
+                 → Europe                  14.4  L25
+```
+
+**Verbose:** relation labels in brackets, also-tokens, layer ranges.
+
+```
+larql> DESCRIBE "France" VERBOSE;
 France
   Edges (L14-27):
     [capital]      → Paris                    9.2  L27      1x  also: Francia, París
@@ -838,17 +855,6 @@ France
 ```
 
 Labelled features show `[relation]` (from probe or cluster). Unlabelled features show `[—]` — model-discovered associations the probes didn't cover. The `also:` column shows what cluster each feature belongs to.
-
-**Brief:** compact, top edges only.
-
-```
-larql> DESCRIBE "France" BRIEF;
-France
-  Edges (L14-27):
-                 → Paris                    9.2  L27
-                 → français                14.7  L23
-                 → Europe                  14.4  L25
-```
 
 **Raw:** no labels, pure model signal.
 
@@ -900,7 +906,7 @@ STATS;
 
 SHOW RELATIONS WITH EXAMPLES;
 
-DESCRIBE "France";
+DESCRIBE "France" VERBOSE;
 -- France
 --   Edges (L14-27):
 --     [capital]      → Paris                    9.2  L27      1x  also: Francia, París
@@ -908,7 +914,7 @@ DESCRIBE "France";
 --     [continent]    → Europe                  14.4  L10-25   4x  also: Belgique, Lesotho
 --     [—]            → Spain                   13.3  L18      1x  also: España, Germany
 
-DESCRIBE "Einstein";
+DESCRIBE "Einstein" VERBOSE;
 -- Einstein
 --   Edges (L14-27):
 --     [—]            → phys                     7.1  L27      1x  also: physics, quantum

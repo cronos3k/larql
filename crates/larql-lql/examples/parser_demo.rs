@@ -71,7 +71,9 @@ fn main() {
     // ── DESCRIBE with layer bands ──
     section("DESCRIBE (Layer Bands)");
 
-    demo("DESCRIBE (default = knowledge)", r#"DESCRIBE "France";"#);
+    demo("DESCRIBE (default = brief)", r#"DESCRIBE "France";"#);
+    demo("DESCRIBE VERBOSE", r#"DESCRIBE "France" VERBOSE;"#);
+    demo("DESCRIBE RAW", r#"DESCRIBE "France" RAW;"#);
     demo("DESCRIBE SYNTAX (L0-13)", r#"DESCRIBE "def" SYNTAX;"#);
     demo("DESCRIBE KNOWLEDGE (L14-27)", r#"DESCRIBE "France" KNOWLEDGE;"#);
     demo("DESCRIBE OUTPUT (L28-33)", r#"DESCRIBE "France" OUTPUT;"#);
@@ -129,6 +131,8 @@ fn main() {
     section("Introspection");
 
     demo("SHOW RELATIONS", "SHOW RELATIONS;");
+    demo("SHOW RELATIONS VERBOSE", "SHOW RELATIONS VERBOSE;");
+    demo("SHOW RELATIONS RAW", "SHOW RELATIONS RAW;");
     demo("SHOW RELATIONS WITH EXAMPLES", "SHOW RELATIONS WITH EXAMPLES;");
     demo("SHOW RELATIONS AT LAYER", "SHOW RELATIONS AT LAYER 26;");
     demo("SHOW LAYERS", "SHOW LAYERS;");

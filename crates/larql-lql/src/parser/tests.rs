@@ -1449,3 +1449,43 @@ fn parse_trace_full() {
         _ => panic!("expected Trace"),
     }
 }
+
+// ══════════════════════════════════════════════════════════════
+// Range validation
+// ══════════════════════════════════════════════════════════════
+
+#[test]
+fn range_invalid_start_greater_than_end() {
+    let result = parse("SHOW LAYERS 10-5;");
+    assert!(result.is_err(), "range 10-5 should fail");
+}
+
+#[test]
+fn range_valid_same_start_end() {
+    let stmt = parse("SHOW LAYERS 5-5;").unwrap();
+    match stmt {
+        Statement::ShowLayers { range } => {
+            let r = range.unwrap();
+            assert_eq!(r.start, 5);
+            assert_eq!(r.end, 5);
+        }
+        _ => panic!("expected ShowLayers"),
+    }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Keyword field name mapping
+// ══════════════════════════════════════════════════════════════
+
+#[test]
+fn keyword_field_names_consistent() {
+    use crate::lexer::Keyword;
+    // Key field-name keywords that must map correctly
+    assert_eq!(Keyword::Layer.as_field_name(), "layer");
+    assert_eq!(Keyword::Confidence.as_field_name(), "confidence");
+    assert_eq!(Keyword::Relation.as_field_name(), "relation");
+    assert_eq!(Keyword::FfnGate.as_field_name(), "ffn_gate");
+    assert_eq!(Keyword::FfnDown.as_field_name(), "ffn_down");
+    assert_eq!(Keyword::AttnOv.as_field_name(), "attn_ov");
+    assert_eq!(Keyword::AutoExtract.as_field_name(), "auto_extract");
+}

@@ -92,6 +92,14 @@ pub struct GateLayerSlice {
     pub num_features: usize,
 }
 
+/// Per-layer Q4 gate data offset info.
+#[derive(Clone)]
+pub struct GateQ4Slice {
+    pub byte_offset: usize,
+    pub byte_len: usize,
+    pub num_features: usize,
+}
+
 /// Mmap'd down_meta.bin — reads individual feature records on demand.
 #[derive(Clone)]
 pub struct DownMetaMmap {

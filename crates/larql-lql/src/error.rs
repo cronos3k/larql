@@ -5,9 +5,6 @@ pub enum LqlError {
     #[error("No backend loaded. Run USE \"path.vindex\" first.")]
     NoBackend,
 
-    #[error("{0} is not yet implemented. {1}")]
-    NotImplemented(String, String),
-
     #[error("Execution error: {0}")]
     Execution(String),
 

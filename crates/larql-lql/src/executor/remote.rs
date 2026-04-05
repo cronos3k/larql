@@ -73,14 +73,6 @@ impl Session {
         }
     }
 
-    /// Number of local patches applied to the remote session.
-    #[allow(dead_code)]
-    fn local_patch_count(&self) -> usize {
-        match &self.backend {
-            Backend::Remote { local_patches, .. } => local_patches.len(),
-            _ => 0,
-        }
-    }
 
     // ── Remote query forwarding ──
 

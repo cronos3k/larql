@@ -162,13 +162,13 @@ pub enum ExplainMode {
     Infer,
 }
 
-/// Display mode for DESCRIBE output.
+/// Display mode for DESCRIBE and SHOW RELATIONS output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[derive(Default)]
 pub enum DescribeMode {
-    /// Default: relation labels, also-tokens, layer ranges, multi-layer hits.
+    /// Full detail: relation labels, also-tokens, layer ranges, multi-layer hits.
     Verbose,
-    /// Compact: top edges only, primary layer, no also-tokens.
+    /// Default. Compact: top edges only, primary layer, no also-tokens.
     #[default]
     Brief,
     /// No probe labels — pure model signal.
