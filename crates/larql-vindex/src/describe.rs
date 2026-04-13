@@ -15,6 +15,8 @@ pub enum LabelSource {
     Pattern,
     /// TF-IDF fallback — no confirmed label (no tag shown in output).
     None,
+    /// Architecture B: inserted via KNN store.
+    KnnStore,
 }
 
 impl std::fmt::Display for LabelSource {
@@ -24,6 +26,7 @@ impl std::fmt::Display for LabelSource {
             Self::Cluster => write!(f, "cluster"),
             Self::Pattern => write!(f, "pattern"),
             Self::None => write!(f, ""),
+            Self::KnnStore => write!(f, "knn"),
         }
     }
 }

@@ -68,6 +68,24 @@ pub enum PatchOp {
         #[serde(default)]
         reason: Option<String>,
     },
+    /// Architecture B: residual-key KNN insert.
+    #[serde(rename = "insert_knn")]
+    InsertKnn {
+        layer: usize,
+        entity: String,
+        relation: String,
+        target: String,
+        target_id: u32,
+        #[serde(default)]
+        confidence: Option<f32>,
+        /// Base64-encoded f32 residual key (L2-normalized).
+        key_vector_b64: String,
+    },
+    /// Architecture B: remove all KNN entries for an entity.
+    #[serde(rename = "delete_knn")]
+    DeleteKnn {
+        entity: String,
+    },
 }
 
 /// Compact down_meta for a patch operation.
@@ -82,12 +100,13 @@ pub struct PatchDownMeta {
 }
 
 impl PatchOp {
-    /// The (layer, feature) this operation targets.
-    pub fn key(&self) -> (usize, usize) {
+    /// The (layer, feature) this operation targets. KNN ops return None.
+    pub fn key(&self) -> Option<(usize, usize)> {
         match self {
-            PatchOp::Insert { layer, feature, .. } => (*layer, *feature),
-            PatchOp::Update { layer, feature, .. } => (*layer, *feature),
-            PatchOp::Delete { layer, feature, .. } => (*layer, *feature),
+            PatchOp::Insert { layer, feature, .. } => Some((*layer, *feature)),
+            PatchOp::Update { layer, feature, .. } => Some((*layer, *feature)),
+            PatchOp::Delete { layer, feature, .. } => Some((*layer, *feature)),
+            PatchOp::InsertKnn { .. } | PatchOp::DeleteKnn { .. } => None,
         }
     }
 }
@@ -130,9 +149,9 @@ impl VindexPatch {
         let mut del = 0;
         for op in &self.operations {
             match op {
-                PatchOp::Insert { .. } => ins += 1,
+                PatchOp::Insert { .. } | PatchOp::InsertKnn { .. } => ins += 1,
                 PatchOp::Update { .. } => upd += 1,
-                PatchOp::Delete { .. } => del += 1,
+                PatchOp::Delete { .. } | PatchOp::DeleteKnn { .. } => del += 1,
             }
         }
         (ins, upd, del)
@@ -271,6 +290,8 @@ pub struct PatchedVindex {
     pub(crate) overrides_gate: HashMap<(usize, usize), Vec<f32>>,
     /// Tombstones for deleted features.
     pub(crate) deleted: std::collections::HashSet<(usize, usize)>,
+    /// Architecture B: per-layer retrieval-override KNN store.
+    pub knn_store: super::knn_store::KnnStore,
 }
 
 impl PatchedVindex {
@@ -282,6 +303,7 @@ impl PatchedVindex {
             overrides_meta: HashMap::new(),
             overrides_gate: HashMap::new(),
             deleted: std::collections::HashSet::new(),
+            knn_store: super::knn_store::KnnStore::default(),
         }
     }
 
@@ -452,7 +474,28 @@ impl PatchedVindex {
     /// Apply a patch. Operations are resolved into the override maps.
     pub fn apply_patch(&mut self, patch: VindexPatch) {
         for op in &patch.operations {
-            let key = op.key();
+            match op {
+                PatchOp::InsertKnn { layer, entity, relation, target, target_id, confidence, key_vector_b64 } => {
+                    if let Ok(key_vec) = decode_gate_vector(key_vector_b64) {
+                        self.knn_store.add(
+                            *layer,
+                            key_vec,
+                            *target_id,
+                            target.clone(),
+                            entity.clone(),
+                            relation.clone(),
+                            confidence.unwrap_or(1.0),
+                        );
+                    }
+                    continue;
+                }
+                PatchOp::DeleteKnn { entity } => {
+                    self.knn_store.remove_by_entity(entity);
+                    continue;
+                }
+                _ => {}
+            }
+            let key = op.key().unwrap(); // safe: only Arch A ops reach here
             match op {
                 PatchOp::Insert { target, confidence, gate_vector_b64, down_meta, .. } => {
                     let meta = if let Some(dm) = down_meta {
@@ -507,6 +550,9 @@ impl PatchedVindex {
                     self.deleted.insert(key);
                     self.overrides_gate.remove(&key);
                 }
+                PatchOp::InsertKnn { .. } | PatchOp::DeleteKnn { .. } => {
+                    unreachable!("KNN ops handled above");
+                }
             }
         }
         self.patches.push(patch);
@@ -525,6 +571,7 @@ impl PatchedVindex {
         self.overrides_meta.clear();
         self.overrides_gate.clear();
         self.deleted.clear();
+        self.knn_store = super::knn_store::KnnStore::default();
         let patches: Vec<VindexPatch> = self.patches.drain(..).collect();
         for patch in patches {
             self.apply_patch(patch);

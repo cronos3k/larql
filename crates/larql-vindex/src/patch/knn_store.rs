@@ -1,0 +1,556 @@
+//! Architecture B: per-layer retrieval-override KNN store.
+//!
+//! Each INSERT stores an L2-normalized residual key alongside target metadata.
+//! At inference time, cosine similarity against the stored keys determines
+//! whether to override the model's prediction. No FFN slot allocation, no
+//! orthogonality constraint, no Hopfield bound — unlimited scale.
+//!
+//! Port of Python `RetrievalVindex` from experiments/15_v11_model/vindex_build_wordnet_b.py.
+
+use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
+use std::io::{Read, Cursor};
+use std::path::Path;
+
+use ndarray::{Array1, Array2};
+use serde::{Serialize, Deserialize};
+
+/// A single entry in the retrieval-override KNN store.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KnnEntry {
+    /// L2-normalized residual key (hidden_size floats).
+    pub key: Vec<f32>,
+    /// Target token ID to emit when this entry matches.
+    pub target_id: u32,
+    /// Decoded target token string.
+    pub target_token: String,
+    /// Source entity name (for DESCRIBE lookups).
+    pub entity: String,
+    /// Relation label.
+    pub relation: String,
+    /// Confidence score (user-specified or default 1.0).
+    pub confidence: f32,
+}
+
+/// Per-layer retrieval-override store. Entries are independent —
+/// no orthogonality constraint, no FFN-slot budget.
+#[derive(Debug)]
+pub struct KnnStore {
+    /// layer -> Vec<KnnEntry>
+    entries: HashMap<usize, Vec<KnnEntry>>,
+    /// Lazy-built L2-normalized key matrices for fast cosine GEMM.
+    key_matrices: Mutex<HashMap<usize, Array2<f32>>>,
+    /// Layers whose key_matrices need rebuilding.
+    dirty: Mutex<HashSet<usize>>,
+}
+
+impl Clone for KnnStore {
+    fn clone(&self) -> Self {
+        Self {
+            entries: self.entries.clone(),
+            key_matrices: Mutex::new(HashMap::new()),
+            dirty: Mutex::new(self.entries.keys().copied().collect()),
+        }
+    }
+}
+
+impl Default for KnnStore {
+    fn default() -> Self {
+        Self {
+            entries: HashMap::new(),
+            key_matrices: Mutex::new(HashMap::new()),
+            dirty: Mutex::new(HashSet::new()),
+        }
+    }
+}
+
+impl KnnStore {
+    /// Add an entry. The key is L2-normalized before storage.
+    pub fn add(
+        &mut self,
+        layer: usize,
+        key: Vec<f32>,
+        target_id: u32,
+        target_token: String,
+        entity: String,
+        relation: String,
+        confidence: f32,
+    ) {
+        let normalized = l2_normalize(&key);
+        self.entries.entry(layer).or_default().push(KnnEntry {
+            key: normalized,
+            target_id,
+            target_token,
+            entity,
+            relation,
+            confidence,
+        });
+        self.dirty.lock().unwrap().insert(layer);
+    }
+
+    /// Remove all entries matching an entity name.
+    pub fn remove_by_entity(&mut self, entity: &str) {
+        let entity_lower = entity.to_lowercase();
+        for (layer, entries) in &mut self.entries {
+            let before = entries.len();
+            entries.retain(|e| e.entity.to_lowercase() != entity_lower);
+            if entries.len() != before {
+                self.dirty.lock().unwrap().insert(*layer);
+            }
+        }
+        self.entries.retain(|_, v| !v.is_empty());
+    }
+
+    /// Remove entries matching entity + relation.
+    pub fn remove_by_entity_relation(&mut self, entity: &str, relation: &str) {
+        let entity_lower = entity.to_lowercase();
+        let relation_lower = relation.to_lowercase();
+        for (layer, entries) in &mut self.entries {
+            let before = entries.len();
+            entries.retain(|e| {
+                e.entity.to_lowercase() != entity_lower
+                    || e.relation.to_lowercase() != relation_lower
+            });
+            if entries.len() != before {
+                self.dirty.lock().unwrap().insert(*layer);
+            }
+        }
+        self.entries.retain(|_, v| !v.is_empty());
+    }
+
+    /// Top-1 KNN query at a layer. Returns (entry, cosine_score).
+    pub fn query_top1(&self, layer: usize, residual: &[f32]) -> Option<(KnnEntry, f32)> {
+        let results = self.query_knn(layer, residual, 1);
+        results.into_iter().next()
+    }
+
+    /// Top-K KNN query at a layer. Returns Vec<(entry, cosine_score)> descending.
+    pub fn query_knn(&self, layer: usize, residual: &[f32], k: usize) -> Vec<(KnnEntry, f32)> {
+        let entries = match self.entries.get(&layer) {
+            Some(e) if !e.is_empty() => e,
+            _ => return Vec::new(),
+        };
+
+        // Rebuild key matrix if dirty
+        {
+            let is_dirty = self.dirty.lock().unwrap().contains(&layer);
+            if is_dirty {
+                self.rebuild_layer(layer);
+            }
+        }
+
+        let matrices = self.key_matrices.lock().unwrap();
+        let key_matrix = match matrices.get(&layer) {
+            Some(m) => m,
+            None => return Vec::new(),
+        };
+
+        // L2-normalize query
+        let q = l2_normalize(residual);
+        let q_arr = Array1::from_vec(q);
+
+        // Cosine = normalized_keys @ normalized_query
+        let scores = key_matrix.dot(&q_arr);
+
+        // Top-K
+        let k_eff = k.min(scores.len());
+        let mut indexed: Vec<(usize, f32)> = scores.iter().copied().enumerate().collect();
+        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        indexed.truncate(k_eff);
+
+        indexed.into_iter().map(|(idx, score)| {
+            (entries[idx].clone(), score)
+        }).collect()
+    }
+
+    /// All entries for a given entity (for DESCRIBE). Returns (layer, &KnnEntry).
+    pub fn entries_for_entity(&self, entity: &str) -> Vec<(usize, &KnnEntry)> {
+        let entity_lower = entity.to_lowercase();
+        let mut results = Vec::new();
+        for (&layer, entries) in &self.entries {
+            for entry in entries {
+                if entry.entity.to_lowercase() == entity_lower {
+                    results.push((layer, entry));
+                }
+            }
+        }
+        results.sort_by_key(|(l, _)| *l);
+        results
+    }
+
+    /// Which layers have entries.
+    pub fn layers(&self) -> Vec<usize> {
+        let mut layers: Vec<usize> = self.entries.keys().copied().collect();
+        layers.sort();
+        layers
+    }
+
+    /// Total entry count across all layers.
+    pub fn len(&self) -> usize {
+        self.entries.values().map(|v| v.len()).sum()
+    }
+
+    /// Whether the store is empty.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Direct access to entries.
+    pub fn entries(&self) -> &HashMap<usize, Vec<KnnEntry>> {
+        &self.entries
+    }
+
+    /// Rebuild the normalized key matrix for a layer.
+    fn rebuild_layer(&self, layer: usize) {
+        if let Some(entries) = self.entries.get(&layer) {
+            if entries.is_empty() {
+                self.key_matrices.lock().unwrap().remove(&layer);
+            } else {
+                let dim = entries[0].key.len();
+                let n = entries.len();
+                let mut matrix = Array2::<f32>::zeros((n, dim));
+                for (i, entry) in entries.iter().enumerate() {
+                    for (j, &v) in entry.key.iter().enumerate() {
+                        matrix[[i, j]] = v;
+                    }
+                }
+                self.key_matrices.lock().unwrap().insert(layer, matrix);
+            }
+        }
+        self.dirty.lock().unwrap().remove(&layer);
+    }
+
+    // ── Serialization ──
+
+    /// Magic bytes for knn_store.bin format.
+    const MAGIC: &'static [u8; 4] = b"LKNN";
+    const VERSION: u32 = 1;
+
+    /// Save to binary format with f16 keys.
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        let mut buf = Vec::new();
+
+        // Header
+        buf.extend_from_slice(Self::MAGIC);
+        buf.extend_from_slice(&Self::VERSION.to_le_bytes());
+
+        // Infer dim from first entry
+        let dim = self.entries.values()
+            .flat_map(|v| v.first())
+            .map(|e| e.key.len())
+            .next()
+            .unwrap_or(0) as u32;
+        buf.extend_from_slice(&dim.to_le_bytes());
+
+        let num_layers = self.entries.len() as u32;
+        buf.extend_from_slice(&num_layers.to_le_bytes());
+
+        // Per layer
+        for (&layer, entries) in &self.entries {
+            buf.extend_from_slice(&(layer as u32).to_le_bytes());
+            buf.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+
+            // Keys as f16 (flat: num_entries * dim)
+            for entry in entries {
+                for &v in &entry.key {
+                    let bits = larql_models::quant::half::f32_to_f16(v);
+                    buf.extend_from_slice(&bits.to_le_bytes());
+                }
+            }
+
+            // Target IDs
+            for entry in entries {
+                buf.extend_from_slice(&entry.target_id.to_le_bytes());
+            }
+
+            // Metadata as JSON blob per entry
+            for entry in entries {
+                let meta = serde_json::json!({
+                    "target_token": entry.target_token,
+                    "entity": entry.entity,
+                    "relation": entry.relation,
+                    "confidence": entry.confidence,
+                });
+                let meta_bytes = serde_json::to_vec(&meta)
+                    .map_err(|e| format!("json encode: {e}"))?;
+                buf.extend_from_slice(&(meta_bytes.len() as u32).to_le_bytes());
+                buf.extend_from_slice(&meta_bytes);
+            }
+        }
+
+        std::fs::write(path, &buf).map_err(|e| format!("write knn_store: {e}"))
+    }
+
+    /// Load from binary format.
+    pub fn load(path: &Path) -> Result<Self, String> {
+        let data = std::fs::read(path).map_err(|e| format!("read knn_store: {e}"))?;
+        let mut cursor = Cursor::new(data.as_slice());
+
+        let mut magic = [0u8; 4];
+        cursor.read_exact(&mut magic).map_err(|e| format!("read magic: {e}"))?;
+        if &magic != Self::MAGIC {
+            return Err(format!("bad magic: expected LKNN, got {:?}", magic));
+        }
+
+        let version = read_u32(&mut cursor)?;
+        if version != Self::VERSION {
+            return Err(format!("unsupported knn_store version: {version}"));
+        }
+
+        let dim = read_u32(&mut cursor)? as usize;
+        let num_layers = read_u32(&mut cursor)? as usize;
+
+        let mut entries = HashMap::new();
+        for _ in 0..num_layers {
+            let layer = read_u32(&mut cursor)? as usize;
+            let num_entries = read_u32(&mut cursor)? as usize;
+
+            // Keys (f16 → f32)
+            let mut keys = Vec::with_capacity(num_entries);
+            for _ in 0..num_entries {
+                let mut key = Vec::with_capacity(dim);
+                for _ in 0..dim {
+                    let bits = read_u16(&mut cursor)?;
+                    key.push(larql_models::quant::half::f16_to_f32(bits));
+                }
+                keys.push(key);
+            }
+
+            // Target IDs
+            let mut target_ids = Vec::with_capacity(num_entries);
+            for _ in 0..num_entries {
+                target_ids.push(read_u32(&mut cursor)?);
+            }
+
+            // Metadata JSON blobs
+            let mut layer_entries = Vec::with_capacity(num_entries);
+            for i in 0..num_entries {
+                let meta_len = read_u32(&mut cursor)? as usize;
+                let mut meta_bytes = vec![0u8; meta_len];
+                cursor.read_exact(&mut meta_bytes)
+                    .map_err(|e| format!("read meta: {e}"))?;
+                let meta: serde_json::Value = serde_json::from_slice(&meta_bytes)
+                    .map_err(|e| format!("json decode: {e}"))?;
+
+                layer_entries.push(KnnEntry {
+                    key: keys[i].clone(),
+                    target_id: target_ids[i],
+                    target_token: meta["target_token"].as_str().unwrap_or("").to_string(),
+                    entity: meta["entity"].as_str().unwrap_or("").to_string(),
+                    relation: meta["relation"].as_str().unwrap_or("").to_string(),
+                    confidence: meta["confidence"].as_f64().unwrap_or(1.0) as f32,
+                });
+            }
+
+            entries.insert(layer, layer_entries);
+        }
+
+        let all_layers: HashSet<usize> = entries.keys().copied().collect();
+        Ok(Self {
+            entries,
+            key_matrices: Mutex::new(HashMap::new()),
+            dirty: Mutex::new(all_layers),
+        })
+    }
+}
+
+/// L2-normalize a vector. Returns zero vector if norm is zero.
+fn l2_normalize(v: &[f32]) -> Vec<f32> {
+    let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm < 1e-12 {
+        return vec![0.0; v.len()];
+    }
+    v.iter().map(|x| x / norm).collect()
+}
+
+fn read_u32(cursor: &mut Cursor<&[u8]>) -> Result<u32, String> {
+    let mut buf = [0u8; 4];
+    cursor.read_exact(&mut buf).map_err(|e| format!("read u32: {e}"))?;
+    Ok(u32::from_le_bytes(buf))
+}
+
+fn read_u16(cursor: &mut Cursor<&[u8]>) -> Result<u16, String> {
+    let mut buf = [0u8; 2];
+    cursor.read_exact(&mut buf).map_err(|e| format!("read u16: {e}"))?;
+    Ok(u16::from_le_bytes(buf))
+}
+
+// ── Tests ──
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_key(dim: usize, seed: f32) -> Vec<f32> {
+        (0..dim).map(|i| (i as f32 + seed).sin()).collect()
+    }
+
+    #[test]
+    fn test_add_and_len() {
+        let mut store = KnnStore::default();
+        assert!(store.is_empty());
+        assert_eq!(store.len(), 0);
+
+        store.add(26, make_key(8, 1.0), 42, "Paris".into(), "France".into(), "capital".into(), 1.0);
+        assert_eq!(store.len(), 1);
+        assert!(!store.is_empty());
+
+        store.add(26, make_key(8, 2.0), 43, "Berlin".into(), "Germany".into(), "capital".into(), 1.0);
+        assert_eq!(store.len(), 2);
+
+        store.add(10, make_key(8, 3.0), 44, "French".into(), "France".into(), "language".into(), 1.0);
+        assert_eq!(store.len(), 3);
+        assert_eq!(store.layers(), vec![10, 26]);
+    }
+
+    #[test]
+    fn test_query_top1_exact_match() {
+        let mut store = KnnStore::default();
+        let key = make_key(64, 1.0);
+        store.add(26, key.clone(), 42, "Paris".into(), "France".into(), "capital".into(), 1.0);
+
+        // Query with same key should return cosine ~1.0
+        let result = store.query_top1(26, &key);
+        assert!(result.is_some());
+        let (entry, score) = result.unwrap();
+        assert_eq!(entry.target_id, 42);
+        assert_eq!(entry.target_token, "Paris");
+        assert!(score > 0.99, "expected ~1.0, got {score}");
+    }
+
+    #[test]
+    fn test_query_top1_no_match() {
+        let store = KnnStore::default();
+        let result = store.query_top1(26, &make_key(64, 1.0));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_query_knn_ordering() {
+        let mut store = KnnStore::default();
+        let key1 = make_key(64, 1.0);
+        let key2 = make_key(64, 2.0);
+        let key3 = make_key(64, 3.0);
+        store.add(26, key1.clone(), 42, "Paris".into(), "France".into(), "capital".into(), 1.0);
+        store.add(26, key2.clone(), 43, "Berlin".into(), "Germany".into(), "capital".into(), 1.0);
+        store.add(26, key3.clone(), 44, "Rome".into(), "Italy".into(), "capital".into(), 1.0);
+
+        // Query with key1 — should return Paris first (exact match)
+        let results = store.query_knn(26, &key1, 3);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].0.target_token, "Paris");
+        assert!(results[0].1 > results[1].1);
+    }
+
+    #[test]
+    fn test_remove_by_entity() {
+        let mut store = KnnStore::default();
+        store.add(26, make_key(8, 1.0), 42, "Paris".into(), "France".into(), "capital".into(), 1.0);
+        store.add(10, make_key(8, 2.0), 43, "French".into(), "France".into(), "language".into(), 1.0);
+        store.add(26, make_key(8, 3.0), 44, "Berlin".into(), "Germany".into(), "capital".into(), 1.0);
+        assert_eq!(store.len(), 3);
+
+        store.remove_by_entity("France");
+        assert_eq!(store.len(), 1);
+        assert_eq!(store.entries_for_entity("France").len(), 0);
+        assert_eq!(store.entries_for_entity("Germany").len(), 1);
+    }
+
+    #[test]
+    fn test_remove_by_entity_case_insensitive() {
+        let mut store = KnnStore::default();
+        store.add(26, make_key(8, 1.0), 42, "Paris".into(), "France".into(), "capital".into(), 1.0);
+        store.remove_by_entity("france");
+        assert_eq!(store.len(), 0);
+    }
+
+    #[test]
+    fn test_entries_for_entity() {
+        let mut store = KnnStore::default();
+        store.add(10, make_key(8, 1.0), 42, "Paris".into(), "France".into(), "capital".into(), 1.0);
+        store.add(26, make_key(8, 2.0), 43, "French".into(), "France".into(), "language".into(), 1.0);
+        store.add(26, make_key(8, 3.0), 44, "Berlin".into(), "Germany".into(), "capital".into(), 1.0);
+
+        let france = store.entries_for_entity("France");
+        assert_eq!(france.len(), 2);
+        assert_eq!(france[0].0, 10); // sorted by layer
+        assert_eq!(france[1].0, 26);
+    }
+
+    #[test]
+    fn test_l2_normalize() {
+        let v = vec![3.0, 4.0];
+        let n = l2_normalize(&v);
+        assert!((n[0] - 0.6).abs() < 1e-6);
+        assert!((n[1] - 0.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_l2_normalize_zero() {
+        let v = vec![0.0, 0.0, 0.0];
+        let n = l2_normalize(&v);
+        assert!(n.iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn test_save_load_roundtrip() {
+        let mut store = KnnStore::default();
+        store.add(26, make_key(16, 1.0), 42, "Paris".into(), "France".into(), "capital".into(), 0.95);
+        store.add(26, make_key(16, 2.0), 43, "Berlin".into(), "Germany".into(), "capital".into(), 0.87);
+        store.add(10, make_key(16, 3.0), 44, "French".into(), "France".into(), "language".into(), 1.0);
+
+        let dir = std::env::temp_dir().join("larql_knn_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_knn_store.bin");
+
+        store.save(&path).expect("save failed");
+        let loaded = KnnStore::load(&path).expect("load failed");
+
+        assert_eq!(loaded.len(), 3);
+        assert_eq!(loaded.layers(), vec![10, 26]);
+
+        // Verify entity lookup works after load
+        let france = loaded.entries_for_entity("France");
+        assert_eq!(france.len(), 2);
+
+        // Verify KNN still works (f16 round-trip loses some precision)
+        let key = make_key(16, 1.0);
+        let result = loaded.query_top1(26, &key);
+        assert!(result.is_some());
+        let (entry, score) = result.unwrap();
+        assert_eq!(entry.target_token, "Paris");
+        assert!(score > 0.95, "expected high cosine after f16 round-trip, got {score}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_query_different_layer_empty() {
+        let mut store = KnnStore::default();
+        store.add(26, make_key(8, 1.0), 42, "Paris".into(), "France".into(), "capital".into(), 1.0);
+
+        // Query at layer 10 which has no entries
+        let result = store.query_top1(10, &make_key(8, 1.0));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_orthogonal_keys_low_score() {
+        let mut store = KnnStore::default();
+        // Two orthogonal keys
+        let mut key1 = vec![0.0; 64];
+        key1[0] = 1.0;
+        let mut key2 = vec![0.0; 64];
+        key2[1] = 1.0;
+
+        store.add(26, key1.clone(), 42, "Paris".into(), "France".into(), "capital".into(), 1.0);
+        store.add(26, key2.clone(), 43, "Berlin".into(), "Germany".into(), "capital".into(), 1.0);
+
+        // Query with key1 — should return Paris with score=1.0, Berlin with score=0.0
+        let results = store.query_knn(26, &key1, 2);
+        assert_eq!(results[0].0.target_token, "Paris");
+        assert!(results[0].1 > 0.99);
+        assert_eq!(results[1].0.target_token, "Berlin");
+        assert!(results[1].1.abs() < 0.01);
+    }
+}

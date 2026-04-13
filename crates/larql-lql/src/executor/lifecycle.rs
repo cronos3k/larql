@@ -60,7 +60,21 @@ impl Session {
                 )];
 
                 let router = larql_vindex::RouterIndex::load(&path, &config);
-                let patched = larql_vindex::PatchedVindex::new(index);
+                let mut patched = larql_vindex::PatchedVindex::new(index);
+
+                // Load KNN store if present (Architecture B)
+                let knn_path = path.join("knn_store.bin");
+                if knn_path.exists() {
+                    match larql_vindex::KnnStore::load(&knn_path) {
+                        Ok(store) => {
+                            patched.knn_store = store;
+                        }
+                        Err(e) => {
+                            eprintln!("warning: failed to load knn_store.bin: {e}");
+                        }
+                    }
+                }
+
                 self.backend = Backend::Vindex { path, config, patched, relation_classifier, router };
                 // Reset any previous patch session
                 self.patch_recording = None;
@@ -343,7 +357,16 @@ impl Session {
         ));
 
         let router = larql_vindex::RouterIndex::load(&output_dir, &config);
-        let patched = larql_vindex::PatchedVindex::new(index);
+        let mut patched = larql_vindex::PatchedVindex::new(index);
+
+        // Load KNN store if present (Architecture B)
+        let knn_path = output_dir.join("knn_store.bin");
+        if knn_path.exists() {
+            if let Ok(store) = larql_vindex::KnnStore::load(&knn_path) {
+                patched.knn_store = store;
+            }
+        }
+
         self.backend = Backend::Vindex {
             path: output_dir,
             config,
@@ -681,6 +704,13 @@ impl Session {
         larql_vindex::VectorIndex::save_config(&new_config, &output_dir)
             .map_err(|e| LqlError::exec("failed to save config", e))?;
 
+        // ── Step 5: serialize KNN store (Architecture B) ──
+        let knn_count = patched.knn_store.len();
+        if knn_count > 0 {
+            patched.knn_store.save(&output_dir.join("knn_store.bin"))
+                .map_err(|e| LqlError::exec("failed to save knn_store", e))?;
+        }
+
         let mut out = Vec::new();
         out.push(format!("Compiled {} → {}", source_path.display(), output_dir.display()));
         out.push(format!("Features: {}", dm_count));
@@ -701,6 +731,9 @@ impl Session {
                 overrides_applied,
                 down_overrides.keys().map(|(l, _)| *l).collect::<std::collections::HashSet<_>>().len(),
             ));
+        }
+        if knn_count > 0 {
+            out.push(format!("KNN store: {} entries", knn_count));
         }
         out.push(format!("Size: {}", format_bytes(dir_size(&output_dir))));
         Ok(out)
@@ -1020,7 +1053,10 @@ pub(crate) fn collect_compile_collisions(
         let mut seen_in_this_patch: std::collections::HashSet<(usize, usize)> =
             std::collections::HashSet::new();
         for op in &patch.operations {
-            let key = op.key();
+            let key = match op.key() {
+                Some(k) => k,
+                None => continue, // KNN ops don't collide on (layer, feature)
+            };
             if seen_in_this_patch.insert(key) {
                 *counts.entry(key).or_insert(0) += 1;
             }

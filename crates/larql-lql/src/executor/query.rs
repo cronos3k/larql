@@ -194,24 +194,75 @@ impl Session {
         );
         let walk_ms = start.elapsed().as_secs_f64() * 1000.0;
 
-        let trace = walk_ffn.take_trace();
+        // ── KNN override check ──
+        // Must call take_residuals BEFORE take_trace (both drain the same RefCell).
+        let residuals = walk_ffn.take_residuals();
+
+        // Check KNN store for retrieval override
+        const KNN_COSINE_THRESHOLD: f32 = 0.75;
+        let knn_layers = patched.knn_store.layers();
+        let mut knn_override: Option<(String, f32, usize)> = None; // (token, cosine, layer)
+
+        if !knn_layers.is_empty() {
+            for &(ref layer, ref residual) in &residuals {
+                if !knn_layers.contains(layer) { continue; }
+                if let Some((entry, cosine)) = patched.knn_store.query_top1(*layer, residual) {
+                    if cosine > KNN_COSINE_THRESHOLD {
+                        knn_override = Some((entry.target_token.clone(), cosine, *layer));
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Build trace from residuals (same logic as take_trace but inline)
+        let mut trace_layers = Vec::with_capacity(residuals.len());
+        for (layer, residual) in &residuals {
+            let r = larql_vindex::ndarray::Array1::from_vec(residual.clone());
+            let hits = patched.gate_knn(*layer, &r, 20);
+            let walk_hits: Vec<larql_vindex::WalkHit> = hits
+                .into_iter()
+                .filter_map(|(feature, gate_score)| {
+                    let meta = patched.feature_meta(*layer, feature)?;
+                    Some(larql_vindex::WalkHit { layer: *layer, feature, gate_score, meta })
+                })
+                .collect();
+            trace_layers.push((*layer, walk_hits));
+        }
 
         let mut out = Vec::new();
         out.push("Predictions (walk FFN):".into());
-        for (i, (tok, prob)) in result.predictions.iter().enumerate() {
+
+        // If KNN override fired, show it first
+        if let Some((ref token, cosine, knn_layer)) = knn_override {
             out.push(format!(
-                "  {:2}. {:20} ({:.2}%)",
-                i + 1,
-                tok,
-                prob * 100.0
+                "   1. {:20} (KNN override, cos={:.2}, L{})",
+                token, cosine, knn_layer,
             ));
+            for (i, (tok, prob)) in result.predictions.iter().enumerate() {
+                out.push(format!(
+                    "  {:2}. {:20} ({:.2}%)",
+                    i + 2,
+                    tok,
+                    prob * 100.0
+                ));
+            }
+        } else {
+            for (i, (tok, prob)) in result.predictions.iter().enumerate() {
+                out.push(format!(
+                    "  {:2}. {:20} ({:.2}%)",
+                    i + 1,
+                    tok,
+                    prob * 100.0
+                ));
+            }
         }
         out.push(format!("  {:.0}ms", walk_ms));
 
         out.push(String::new());
         out.push("Inference trace (features that fired with attention):".into());
         let classifier = self.relation_classifier();
-        for (layer, hits) in &trace.layers {
+        for (layer, hits) in &trace_layers {
             if hits.is_empty() {
                 continue;
             }
@@ -293,7 +344,21 @@ impl Session {
 
         // ── Phase 3: walk + collect edges ──
         let trace = patched.walk(&query, &scan_layers, 20);
-        let edges = describe_collect_edges(&trace, entity);
+        let mut edges = describe_collect_edges(&trace, entity);
+
+        // ── Phase 3b: append KNN store entries for this entity ──
+        let knn_hits = patched.knn_store.entries_for_entity(entity);
+        for (knn_layer, entry) in knn_hits {
+            edges.push(DescribeEdge {
+                gate: entry.confidence * 10.0, // scale to match gate score range
+                layers: vec![knn_layer],
+                count: 1,
+                original: entry.target_token.clone(),
+                also: vec![format!("[knn:{}]", entry.relation)],
+                best_layer: knn_layer,
+                best_feature: 0,
+            });
+        }
 
         // ── Phase 4: format ──
         let mut out = vec![entity.to_string()];

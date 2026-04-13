@@ -61,14 +61,8 @@ pub struct Session {
     pub(crate) patch_recording: Option<PatchRecording>,
     /// Whether the current patch was auto-started (anonymous).
     pub(crate) auto_patch: bool,
-    /// Per-layer cached decoy residuals. Populated on the first INSERT
-    /// that runs the online refine pass, reused by subsequent INSERTs
-    /// in the same session. The cache holds the L_install residuals
-    /// from forward-passing a fixed canonical decoy prompt set through
-    /// the clean base index. Used by `exec_insert` to suppress the
-    /// canonical bleed directions (literary / poetic / story-starter
-    /// prompts) in each new slot's gate. Keyed by layer because
-    /// different INSERTs can target different layers.
+    /// Architecture A: per-layer cached decoy residuals. Kept for backward compat.
+    #[allow(dead_code)]
     pub(crate) decoy_residual_cache:
         std::collections::HashMap<usize, Vec<larql_vindex::ndarray::Array1<f32>>>,
     /// Raw captured residuals per installed slot, indexed by
@@ -81,7 +75,8 @@ pub struct Session {
     /// stored (already-refined) peers, compound drift across
     /// iterations would leave the latest insert dominating (see
     /// `refine_demo` 10-fact run where every prompt returned the
-    /// last-inserted target before this cache existed).
+    /// last-installed target before this cache existed).
+    #[allow(dead_code)]
     pub(crate) raw_install_residuals: std::collections::HashMap<
         (usize, usize),
         larql_vindex::ndarray::Array1<f32>,
@@ -478,7 +473,8 @@ impl Session {
     }
 }
 
-/// Canonical decoy prompt set for the INSERT online refine pass.
+#[allow(dead_code)]
+/// Architecture A: canonical decoy prompt set. Kept for backward compat.
 ///
 /// Same set as `experiments/14_vindex_compilation/experiment_vindex_compilation.py`.
 /// These prompts span literary, philosophical, poetic, and common
