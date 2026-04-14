@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write   # needed to create/update GitHub Releases
+
 jobs:
   build-linux:
     name: Build larql for Linux x86_64
