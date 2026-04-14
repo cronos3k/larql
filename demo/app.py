@@ -27,7 +27,52 @@ from utils import (
 # Paths & defaults
 # ---------------------------------------------------------------------------
 REPO_ROOT = Path(__file__).parent.parent
-MODELS_DIR = REPO_ROOT / "models"
+# On HF Spaces (Docker) __file__ is /app/app.py, so REPO_ROOT is /
+# Store the demo vindex alongside the app instead
+_RUNNING_IN_SPACE = os.environ.get("SPACE_ID") is not None or Path("/app").exists()
+MODELS_DIR = Path("/app/models") if _RUNNING_IN_SPACE else REPO_ROOT / "models"
+
+# ---------------------------------------------------------------------------
+# Demo vindex: auto-download from HF if no local vindexes are found
+# ---------------------------------------------------------------------------
+DEMO_DATASET = "cronos3k/qwen2.5-0.5b-instruct-vindex"
+DEMO_VINDEX_DIR = MODELS_DIR / "qwen2.5-0.5b-instruct.vindex"
+
+def maybe_download_demo_vindex(progress_fn=None):
+    """
+    Download the demo vindex from HF Hub if no local vindexes are available.
+    Called once at startup. Safe to call multiple times (no-op if already present).
+    """
+    # Already have it?
+    if (DEMO_VINDEX_DIR / "index.json").exists():
+        return str(DEMO_VINDEX_DIR)
+    # Any other local vindex?
+    if list_local_vindexes(str(MODELS_DIR)):
+        return None
+
+    try:
+        import huggingface_hub as hfh
+    except ImportError:
+        print("[demo] huggingface_hub not installed — skipping demo vindex download.")
+        return None
+
+    print(f"[demo] No local vindex found. Downloading demo from {DEMO_DATASET}...")
+    DEMO_VINDEX_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        hfh.snapshot_download(
+            repo_id=DEMO_DATASET,
+            repo_type="dataset",
+            local_dir=str(DEMO_VINDEX_DIR),
+            ignore_patterns=["*.md"],  # skip dataset card
+        )
+        print(f"[demo] Demo vindex ready at {DEMO_VINDEX_DIR}")
+        return str(DEMO_VINDEX_DIR)
+    except Exception as e:
+        print(f"[demo] Could not download demo vindex: {e}")
+        return None
+
+# Download at startup (blocking — fast on HF Spaces internal network, ~5-10s)
+maybe_download_demo_vindex()
 
 def get_vindex_choices():
     paths = list_local_vindexes(str(MODELS_DIR)) if MODELS_DIR.exists() else []
