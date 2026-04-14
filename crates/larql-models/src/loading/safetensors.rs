@@ -178,12 +178,22 @@ pub fn resolve_model_path(model: &str) -> Result<PathBuf, ModelError> {
         return Ok(path);
     }
 
-    // Try HuggingFace cache
+    // Try HuggingFace cache — find the platform cache root.
+    // macOS/Linux: $HOME/.cache/huggingface/hub
+    // Windows:     %USERPROFILE%\.cache\huggingface\hub  (or %HF_HOME% / %HUGGINGFACE_HUB_CACHE%)
     let cache_name = format!("models--{}", model.replace('/', "--"));
-    let home = std::env::var("HOME")
+    let hf_cache_root = std::env::var("HUGGINGFACE_HUB_CACHE")
+        .or_else(|_| std::env::var("HF_HOME").map(|h| format!("{h}/hub")))
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."));
-    let hf_cache = home.join(format!(".cache/huggingface/hub/{cache_name}/snapshots"));
+        .unwrap_or_else(|_| {
+            // Standard per-OS default
+            let home = std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))   // Windows fallback
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("."));
+            home.join(".cache/huggingface/hub")
+        });
+    let hf_cache = hf_cache_root.join(format!("{cache_name}/snapshots"));
 
     if hf_cache.is_dir() {
         // Find the snapshot that has actual model files (safetensors or config.json+weights)
@@ -210,7 +220,89 @@ pub fn resolve_model_path(model: &str) -> Result<PathBuf, ModelError> {
         }
     }
 
+    // Not in cache — looks like a HuggingFace repo ID (contains '/').
+    // Try to download it via hf-hub.
+    if model.contains('/') {
+        eprintln!("[larql] Model not in local cache — downloading from HuggingFace: {model}");
+        eprintln!("[larql] Set HF_TOKEN env var if the model requires authentication.");
+        return download_hf_model(model);
+    }
+
     Err(ModelError::NotADirectory(path))
+}
+
+/// Download a model from HuggingFace Hub into the local cache and return the snapshot path.
+fn download_hf_model(repo_id: &str) -> Result<PathBuf, ModelError> {
+    use hf_hub::api::sync::ApiBuilder;
+
+    let mut builder = ApiBuilder::new();
+    if let Ok(token) = std::env::var("HF_TOKEN") {
+        builder = builder.with_token(Some(token));
+    }
+    let api = builder.build()
+        .map_err(|e| ModelError::NotADirectory(PathBuf::from(format!("hf-hub init failed: {e}"))))?;
+
+    let repo = api.model(repo_id.to_string());
+
+    // Pull key files — config + tokenizer + all safetensors shards.
+    // hf-hub downloads to its cache and returns the local path for each file.
+    let files_to_fetch = &["config.json", "tokenizer.json", "tokenizer_config.json"];
+    let mut snapshot_dir: Option<PathBuf> = None;
+
+    for file in files_to_fetch {
+        match repo.get(file) {
+            Ok(local) => {
+                // The local path is inside the snapshot dir — parent gives us that dir.
+                if snapshot_dir.is_none() {
+                    snapshot_dir = local.parent().map(PathBuf::from);
+                }
+            }
+            Err(_) => {} // optional files — keep going
+        }
+    }
+
+    // Fetch all safetensors shards (model.safetensors or model-00001-of-NNNNN.safetensors).
+    // We probe common shard names; hf-hub will error on missing files which we ignore.
+    for shard in 0..100u32 {
+        let name = if shard == 0 {
+            "model.safetensors".to_string()
+        } else {
+            format!("model-{shard:05}-of-*.safetensors")
+        };
+        // Try exact name for shard 0, otherwise fall back.
+        let try_name = if shard == 0 { "model.safetensors" } else { break };
+        match repo.get(try_name) {
+            Ok(local) => {
+                if snapshot_dir.is_none() {
+                    snapshot_dir = local.parent().map(PathBuf::from);
+                }
+                break; // single-shard model
+            }
+            Err(_) => { break; }
+        }
+    }
+
+    // Try multi-shard naming: model-00001-of-00002.safetensors etc.
+    // List the repo to find actual shard filenames.
+    if let Ok(info) = repo.info() {
+        let shard_files: Vec<String> = info.siblings.iter()
+            .map(|s| s.rfilename.clone())
+            .filter(|n| n.ends_with(".safetensors"))
+            .collect();
+        for fname in &shard_files {
+            if let Ok(local) = repo.get(fname) {
+                if snapshot_dir.is_none() {
+                    snapshot_dir = local.parent().map(PathBuf::from);
+                }
+            }
+        }
+    }
+
+    snapshot_dir.ok_or_else(|| {
+        ModelError::NotADirectory(PathBuf::from(format!(
+            "failed to download model '{repo_id}' — no files fetched"
+        )))
+    })
 }
 
 /// Normalize a tensor key by stripping known prefixes.

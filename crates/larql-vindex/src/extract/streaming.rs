@@ -256,6 +256,13 @@ pub fn build_vindex_streaming(
     std::fs::write(output_dir.join("embeddings.bin"), &embed_bytes)?;
     callbacks.on_stage_done("embeddings", 0.0);
 
+    // Pick the best available compute backend once — used for all matmul in down_meta.
+    // With `--features cuda` this will be the CUDA/cuBLAS backend (RTX 4090 etc.),
+    // otherwise Accelerate on macOS or matrixmultiply on Windows.
+    let compute_backend = larql_compute::default_backend();
+    eprintln!("[compute] using backend: {} ({})", compute_backend.name(), compute_backend.device_info());
+
+
     // ── 3. Down meta (streaming) ──
     callbacks.on_stage("down_meta");
     let mut all_down_meta: Vec<Option<Vec<Option<crate::FeatureMeta>>>> = vec![None; num_layers];
@@ -328,9 +335,8 @@ pub fn build_vindex_streaming(
                     down_matrices.iter().map(|m| m.shape()[1]).sum());
 
                 let w_chunk = w_down.slice(ndarray::s![.., batch_start..batch_end]).to_owned();
-                let cpu = larql_compute::CpuBackend;
                 use larql_compute::ComputeBackend;
-                let chunk_logits = cpu.matmul(embed.view(), w_chunk.view());
+                let chunk_logits = compute_backend.matmul(embed.view(), w_chunk.view());
 
                 for feat in batch_start..batch_end {
                     let col = chunk_logits.column(feat - batch_start);

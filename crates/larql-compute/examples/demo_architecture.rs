@@ -12,6 +12,7 @@
 //!
 //! Usage: cargo run --release --features metal -p larql-compute --example demo_architecture
 
+#[cfg(unix)]
 extern crate blas_src;
 
 fn main() {

@@ -1,5 +1,6 @@
 //! Micro-benchmark: single-layer Q4_K QKV + FFN to isolate per-layer cost.
 
+#[cfg(unix)]
 extern crate blas_src;
 
 fn main() {

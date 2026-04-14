@@ -7,6 +7,7 @@
 //! Usage:
 //!   cargo run --release -p larql-compute --features metal --example bench_kernel_variants
 
+#[cfg(unix)]
 extern crate blas_src;
 
 #[allow(unused_imports)]

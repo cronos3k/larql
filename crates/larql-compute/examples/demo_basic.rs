@@ -4,6 +4,7 @@
 //!   cargo run --release -p larql-compute --example demo
 //!   cargo run --release -p larql-compute --features metal --example demo
 
+#[cfg(unix)]
 extern crate blas_src;
 
 use ndarray::Array2;

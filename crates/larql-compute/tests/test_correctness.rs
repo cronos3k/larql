@@ -1,5 +1,6 @@
 //! Correctness tests: verify all backends produce matching output.
 
+#[cfg(unix)]
 extern crate blas_src;
 
 use ndarray::Array2;

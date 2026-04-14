@@ -8,6 +8,7 @@
 
 #![cfg(feature = "metal")]
 
+#[cfg(unix)]
 extern crate blas_src;
 
 use ndarray::Array2;

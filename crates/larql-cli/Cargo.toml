@@ -21,3 +21,8 @@ indicatif = "0.17"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+
+[features]
+default = []
+cuda  = ["larql-inference/cuda"]
+metal = ["larql-inference/metal"]

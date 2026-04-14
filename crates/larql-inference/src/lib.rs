@@ -1,3 +1,4 @@
+#[cfg(unix)]
 extern crate blas_src;
 
 pub mod attention;
