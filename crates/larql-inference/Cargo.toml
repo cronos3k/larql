@@ -32,10 +32,11 @@ tokenizers = "0.21"
 blas-src = { version = "0.10", features = ["accelerate"] }
 ndarray = { version = "0.16", features = ["blas"] }
 
-# Linux/BSD: OpenBLAS (install: apt install libopenblas-dev)
+# Linux/BSD: OpenBLAS system library (links installed lib, doesn't build from source)
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-blas-src = { version = "0.10", features = ["openblas"] }
-ndarray = { version = "0.16", features = ["blas"] }
+blas-src     = { version = "0.10", features = ["openblas"] }
+openblas-src = { version = "0.10", features = ["system"] }
+ndarray      = { version = "0.16", features = ["blas"] }
 
 # Unix only: madvise hints for mmap'd stores
 [target.'cfg(unix)'.dependencies]

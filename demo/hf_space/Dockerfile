@@ -3,7 +3,7 @@ FROM rust:1.82-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     git pkg-config libssl-dev ca-certificates \
-    libopenblas-dev gfortran \
+    libopenblas-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone the fork and build only the CLI crate

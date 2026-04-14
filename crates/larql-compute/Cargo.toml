@@ -20,10 +20,13 @@ blas-src = { version = "0.10", features = ["accelerate"] }
 ndarray = { version = "0.16", features = ["blas"] }
 metal = { version = "0.29", optional = true }
 
-# Linux/BSD: OpenBLAS (install: apt install libopenblas-dev  /  dnf install openblas-devel)
+# Linux/BSD: OpenBLAS system library (install: apt install libopenblas-dev)
+# openblas-src "system" feature prevents it from building OpenBLAS from source.
+# blas-src "openblas" + openblas-src "system" → Cargo feature-merges to link the installed lib.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-blas-src = { version = "0.10", features = ["openblas"] }
-ndarray = { version = "0.16", features = ["blas"] }
+blas-src    = { version = "0.10", features = ["openblas"] }
+openblas-src = { version = "0.10", features = ["system"] }
+ndarray     = { version = "0.16", features = ["blas"] }
 
 # Windows: pure ndarray/matrixmultiply — no BLAS setup required.
 # For optional BLAS on Windows, add openblas-src with the "static" feature.
