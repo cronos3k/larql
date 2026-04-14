@@ -2,6 +2,7 @@
 # Downloads the pre-built Linux binary from the cronos3k/larql GitHub Release.
 # No Rust build step: fast image build (~2 min), no compiler toolchain needed.
 # Binary source: https://github.com/cronos3k/larql/releases/tag/latest-linux
+# Built on: ubuntu-22.04 (glibc 2.35, compatible with Debian bookworm glibc 2.36)
 
 FROM python:3.11-slim-bookworm
 
