@@ -16,8 +16,11 @@ short_description: Query neural network weights like a graph database
 **The model IS the database.** Browse and query transformer weights as a knowledge
 graph — no SQL, no GPU needed for basic queries.
 
-Built on [chrishayuk/larql](https://github.com/chrishayuk/larql) by **Chris Hayuk**.  
-Windows/Linux/CUDA port: [cronos3k/larql](https://github.com/cronos3k/larql)
+Original LARQL system by **Chris Hayuk** — [chrishayuk/larql](https://github.com/chrishayuk/larql)  
+This Gradio UI + Windows/Linux/CUDA port by **Gregor Koch** — [cronos3k/larql](https://github.com/cronos3k/larql)
+
+> The original was a command-line tool for macOS only. This fork opens it up:
+> any platform, any hardware, any browser.
 
 ## What you can do
 

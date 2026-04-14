@@ -1,10 +1,15 @@
 # LARQL
 
-> **Fork notice:** This is [cronos3k/larql](https://github.com/cronos3k/larql), a fork of
-> [chrishayuk/larql](https://github.com/chrishayuk/larql) by **Chris Hayuk**.
-> The fork adds Windows/Linux cross-platform support and a CUDA backend for NVIDIA GPUs.
-> All core concepts, the LQL language, and the vindex format are the original work of Chris Hayuk.
-> See [FORK.md](FORK.md) for a full account of what changed and why.
+> **Fork — [cronos3k/larql](https://github.com/cronos3k/larql)**
+> Original work by **Chris Hayuk** ([@chrishayuk](https://github.com/chrishayuk/larql)).
+> All core concepts — LQL, the vindex format, the extraction pipeline, the inference engine — are his.
+>
+> This fork adds:
+> - **Gradio web UI** (`demo/`) — run in a browser, no terminal or LQL knowledge needed; publishable as a HuggingFace Space
+> - **Windows & Linux support** — builds and runs on any platform, not just macOS
+> - **CUDA backend** — hardware-accelerated extraction and queries on NVIDIA GPUs
+>
+> → See [FORK.md](FORK.md) for the full technical changelog and attribution.
 
 The model IS the database. Query neural network weights like a graph database. No GPU required.
 
