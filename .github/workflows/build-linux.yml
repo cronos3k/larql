@@ -11,7 +11,7 @@ permissions:
 jobs:
   build-linux:
     name: Build larql for Linux x86_64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04    # Pin to 22.04 (glibc 2.35) for Debian Bookworm compatibility
 
     steps:
       - uses: actions/checkout@v4
