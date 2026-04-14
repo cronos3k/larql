@@ -1,0 +1,55 @@
+name: Build Linux binary
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    name: Build larql for Linux x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenblas-dev pkg-config libssl-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-x86_64-cli
+
+      - name: Build larql CLI
+        run: cargo build --release -p larql-cli
+
+      - name: Rename binary
+        run: |
+          cp target/release/larql larql-linux-x86_64
+          chmod +x larql-linux-x86_64
+
+      - name: Upload binary as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: larql-linux-x86_64
+          path: larql-linux-x86_64
+          retention-days: 90
+
+      - name: Create / update rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-linux
+          name: "Latest Linux build"
+          body: |
+            Automatically built Linux x86_64 binary from the latest `main` branch.
+            Used by the [LARQL Explorer HuggingFace Space](https://huggingface.co/spaces/cronos3k/LARQL-Explorer).
+          prerelease: true
+          files: larql-linux-x86_64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

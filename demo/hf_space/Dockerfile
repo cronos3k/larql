@@ -1,24 +1,20 @@
-# Stage 1: Build the larql binary from source
-FROM rust:1.82-slim-bookworm AS builder
+# LARQL Explorer — HuggingFace Space
+# Downloads the pre-built Linux binary from the cronos3k/larql GitHub Release.
+# No Rust build step: fast image build, no compiler toolchain needed.
 
-RUN apt-get update && apt-get install -y \
-    git pkg-config libssl-dev ca-certificates \
-    libopenblas-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Clone the fork and build only the CLI crate
-RUN git clone --depth 1 https://github.com/cronos3k/larql /build
-WORKDIR /build
-RUN cargo build --release -p larql-cli
-
-# Stage 2: Lean runtime image
 FROM python:3.11-slim-bookworm
 
-# OpenBLAS runtime lib needed by the larql binary
-RUN apt-get update && apt-get install -y libopenblas0 && rm -rf /var/lib/apt/lists/*
+# Runtime deps only: libopenblas0 for the larql binary, curl for the download
+RUN apt-get update && apt-get install -y \
+    libopenblas0 curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy the compiled binary
-COPY --from=builder /build/target/release/larql /usr/local/bin/larql
+# Download the latest pre-built Linux binary from GitHub Releases
+RUN curl -fsSL \
+    https://github.com/cronos3k/larql/releases/download/latest-linux/larql-linux-x86_64 \
+    -o /usr/local/bin/larql \
+    && chmod +x /usr/local/bin/larql \
+    && larql --version
 
 # Copy the Gradio demo app
 COPY app.py utils.py requirements.txt /app/
@@ -34,5 +30,5 @@ EXPOSE 7860
 ENV GRADIO_SERVER_NAME=0.0.0.0
 ENV GRADIO_SERVER_PORT=7860
 
-# app.py downloads the demo vindex from HF Hub on first startup
+# app.py downloads the demo vindex from HF dataset on first startup (~480 MB, fast on HF infra)
 CMD ["python", "app.py"]
