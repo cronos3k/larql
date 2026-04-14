@@ -37,6 +37,16 @@ people on any hardware, through any browser.
 
 ---
 
+## Live Demo
+
+The Gradio UI is deployed as a HuggingFace Space:
+**[huggingface.co/spaces/cronos3k/LARQL-Explorer](https://huggingface.co/spaces/cronos3k/LARQL-Explorer)**
+
+The Space downloads the pre-built Linux binary from GitHub Releases and the demo
+vindex from HF Hub automatically at startup — no setup required.
+
+---
+
 ## The Gradio Demo (`demo/`)
 
 A full interactive web interface built with Gradio 6, designed to be published as a
@@ -162,6 +172,26 @@ prompt tested.
 | Platform-conditional BLAS | — | ✓ |
 | MSVC C compiler fixes | — | ✓ |
 | HF model auto-download on Windows | — | ✓ |
+
+---
+
+## Known Issues
+
+### Gradio 6.12 tab navigation bug
+
+**Symptom:** After running a Walk query in the Walk Explorer tab, clicking other
+tabs silently fails — the UI stays on Walk Explorer.
+
+**Root cause:** A `TypeError` in Gradio's internal Dataframe component
+(`Index-BGETwOir.js: Cannot read properties of undefined (reading '0')`) fires
+during the Svelte reactive re-render triggered by the tab switch. The error is
+swallowed silently.
+
+**Workaround:** Refresh the page and navigate to the desired tab before running
+Walk. All tabs work correctly on a fresh page load. The bug only occurs after the
+Walk feature table is populated.
+
+**Scope:** HF Space UI only. The `larql` binary itself is unaffected.
 
 ---
 

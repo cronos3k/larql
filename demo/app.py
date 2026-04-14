@@ -413,6 +413,13 @@ with gr.Blocks(title="LARQL Explorer") as demo:
                 wrap=True,
                 column_widths=["80px", "90px", "80px", "110px", "140px", "80px", "auto"],
             )
+            gr.Markdown(
+                "_💡 **Tip:** If clicking other tabs stops working after running Walk, "
+                "refresh the page (F5) and navigate to the desired tab first. "
+                "This is a Gradio 6.12 interaction bug that only appears after "
+                "the feature table is populated._",
+                visible=True,
+            )
 
             walk_btn.click(
                 do_walk,

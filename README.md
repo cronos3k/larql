@@ -5,7 +5,7 @@
 > All core concepts — LQL, the vindex format, the extraction pipeline, the inference engine — are his.
 >
 > This fork adds:
-> - **Gradio web UI** (`demo/`) — run in a browser, no terminal or LQL knowledge needed; publishable as a HuggingFace Space
+> - **Gradio web UI** (`demo/`) — run in a browser, no terminal or LQL knowledge needed; live at **[huggingface.co/spaces/cronos3k/LARQL-Explorer](https://huggingface.co/spaces/cronos3k/LARQL-Explorer)**
 > - **Windows & Linux support** — builds and runs on any platform, not just macOS
 > - **CUDA backend** — hardware-accelerated extraction and queries on NVIDIA GPUs
 >
