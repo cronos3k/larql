@@ -35,3 +35,6 @@ experiments/
 # Extracted vindexes and downloaded models (large binaries)
 models/
 *.vindex/
+
+# Demo logs
+demo/*.log
