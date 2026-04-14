@@ -13,7 +13,6 @@ import subprocess
 from pathlib import Path
 
 import gradio as gr
-import pandas as pd
 
 # Add demo dir to path so utils is importable both locally and on HF Spaces
 sys.path.insert(0, str(Path(__file__).parent))
@@ -107,11 +106,47 @@ def binary_status_md() -> str:
 # ---------------------------------------------------------------------------
 # Tab 1 — Walk Explorer
 # ---------------------------------------------------------------------------
+def _rows_to_html(rows: list[dict]) -> str:
+    """Render walk result rows as a styled HTML table (avoids Gradio 6.12 DataFrame bug)."""
+    if not rows:
+        return ""
+    cols = list(rows[0].keys())
+    th_style = (
+        "padding:6px 10px;text-align:left;border-bottom:2px solid #444;"
+        "font-size:0.82rem;color:#aaa;white-space:nowrap;"
+    )
+    td_style = "padding:5px 10px;border-bottom:1px solid #2a2a2a;font-size:0.82rem;vertical-align:top;"
+    tbl = (
+        '<div style="overflow-x:auto;border-radius:8px;border:1px solid #333;">'
+        '<table style="width:100%;border-collapse:collapse;background:#1a1a1a;">'
+        "<thead><tr>"
+    )
+    for c in cols:
+        tbl += f'<th style="{th_style}">{c}</th>'
+    tbl += "</tr></thead><tbody>"
+    for i, row in enumerate(rows):
+        bg = "#1e1e1e" if i % 2 == 0 else "#222"
+        tbl += f'<tr style="background:{bg}">'
+        for c in cols:
+            val = row[c]
+            cell_style = td_style
+            if c == "Direction":
+                color = "#4ade80" if "excites" in str(val) else "#f87171"
+                cell_style += f"color:{color};font-weight:600;"
+            elif c == "Gate":
+                color = "#4ade80" if float(val) > 0 else "#f87171"
+                cell_style += f"color:{color};"
+            tbl += f'<td style="{cell_style}">{val}</td>'
+        tbl += "</tr>"
+    tbl += "</tbody></table></div>"
+    return tbl
+
+
 def do_walk(vindex_path, prompt, layer_from, layer_to, top_k):
     if not prompt.strip():
-        return pd.DataFrame(), "Enter a prompt above."
+        return "", "Enter a prompt above."
     if not vindex_path.strip():
-        return pd.DataFrame(), "Enter a vindex path."
+        return "", "Enter a vindex path."
 
     layers_arg = f"{int(layer_from)}-{int(layer_to)}"
     rc, out, err = run_larql(
@@ -124,17 +159,16 @@ def do_walk(vindex_path, prompt, layer_from, layer_to, top_k):
     )
     combined = (out + "\n" + err).strip()
     if rc != 0:
-        return pd.DataFrame(), f"**Error:**\n```\n{combined}\n```"
+        return "", f"**Error:**\n```\n{combined}\n```"
 
     rows = parse_walk_output(combined)
     if not rows:
-        return pd.DataFrame(), f"No features returned.\n\nRaw output:\n```\n{combined}\n```"
+        return "", f"No features returned.\n\nRaw output:\n```\n{combined}\n```"
 
-    df = pd.DataFrame(rows)
-    # Summary footer from last line of output
+    html = _rows_to_html(rows)
     summary = [l for l in combined.splitlines() if l.startswith("Walk:")]
     status = summary[-1] if summary else ""
-    return df, f"✓ {status}"
+    return html, f"✓ {status}"
 
 
 def update_layer_max(vindex_path):
@@ -408,18 +442,8 @@ with gr.Blocks(title="LARQL Explorer") as demo:
                 )
 
             walk_status = gr.Markdown("")
-            walk_table = gr.DataFrame(
-                label="Active features",
-                wrap=True,
-                column_widths=["80px", "90px", "80px", "110px", "140px", "80px", "auto"],
-            )
-            gr.Markdown(
-                "_💡 **Tip:** If clicking other tabs stops working after running Walk, "
-                "refresh the page (F5) and navigate to the desired tab first. "
-                "This is a Gradio 6.12 interaction bug that only appears after "
-                "the feature table is populated._",
-                visible=True,
-            )
+            gr.Markdown("**Active features**", elem_classes=["label-md"])
+            walk_table = gr.HTML(value="")
 
             walk_btn.click(
                 do_walk,
