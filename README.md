@@ -1,5 +1,16 @@
 # LARQL
 
+> **Fork — [cronos3k/larql](https://github.com/cronos3k/larql)**
+> Original work by **Chris Hayuk** ([@chrishayuk](https://github.com/chrishayuk/larql)).
+> All core concepts — LQL, the vindex format, the extraction pipeline, the inference engine — are his.
+>
+> This fork adds:
+> - **Gradio web UI** (`demo/`) — run in a browser, no terminal or LQL knowledge needed; live at **[huggingface.co/spaces/cronos3k/LARQL-Explorer](https://huggingface.co/spaces/cronos3k/LARQL-Explorer)**
+> - **Windows & Linux support** — builds and runs on any platform, not just macOS
+> - **CUDA backend** — hardware-accelerated extraction and queries on NVIDIA GPUs
+>
+> → See [FORK.md](FORK.md) for the full technical changelog and attribution.
+
 The model IS the database. Query neural network weights like a graph database. No GPU required.
 
 LARQL decompiles transformer models into a queryable format called a **vindex** (vector index), then provides **LQL** (Lazarus Query Language) to browse, edit, and recompile the model's knowledge.
