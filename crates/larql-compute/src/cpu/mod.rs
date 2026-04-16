@@ -71,8 +71,12 @@ impl ComputeBackend for CpuBackend {
 
     fn device_info(&self) -> String {
         #[cfg(target_os = "macos")]
-        { "macOS Accelerate AMX".to_string() }
-        #[cfg(not(target_os = "macos"))]
-        { "CPU BLAS".to_string() }
+        { "macOS Accelerate (AMX)".to_string() }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        { "Linux OpenBLAS".to_string() }
+        #[cfg(windows)]
+        { "Windows CPU (matrixmultiply)".to_string() }
+        #[cfg(not(any(unix, windows)))]
+        { "CPU (matrixmultiply)".to_string() }
     }
 }

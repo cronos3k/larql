@@ -9,18 +9,36 @@ keywords = ["matmul", "metal", "gpu", "quantization", "blas"]
 categories = ["science"]
 
 [dependencies]
-# Matrix types
-ndarray = { version = "0.16", features = ["blas"] }
-blas-src = { version = "0.10", features = ["accelerate"] }
+# Matrix types — pure Rust matrixmultiply backend (works on all platforms)
+# BLAS acceleration is added per-platform below where available.
+ndarray = "0.16"
 
-# Metal GPU (macOS only, optional)
+# macOS: Accelerate framework (ships with every Mac, no install required)
+# Also hosts the Metal GPU backend.
 [target.'cfg(target_os = "macos")'.dependencies]
+blas-src = { version = "0.10", features = ["accelerate"] }
+ndarray = { version = "0.16", features = ["blas"] }
 metal = { version = "0.29", optional = true }
+
+# Linux/BSD: OpenBLAS system library (install: apt install libopenblas-dev)
+# openblas-src "system" feature prevents it from building OpenBLAS from source.
+# blas-src "openblas" + openblas-src "system" → Cargo feature-merges to link the installed lib.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+blas-src    = { version = "0.10", features = ["openblas"] }
+openblas-src = { version = "0.10", features = ["system"] }
+ndarray     = { version = "0.16", features = ["blas"] }
+
+# Windows: pure ndarray/matrixmultiply — no BLAS setup required.
+# For optional BLAS on Windows, add openblas-src with the "static" feature.
+
+# CUDA backend (Windows + Linux; not macOS — use Metal there instead)
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+cudarc = { version = "0.12", features = ["cublas", "cuda-12060"], optional = true }
 
 [features]
 default = []
 metal = ["dep:metal"]
-# cuda = []  # Future: CUDA backend
+cuda  = ["dep:cudarc"]
 
 [build-dependencies]
 cc = "1.0"

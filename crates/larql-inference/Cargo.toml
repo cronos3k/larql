@@ -21,19 +21,31 @@ thiserror = { workspace = true }
 safetensors = "0.5"
 memmap2 = "0.9"
 
-# System
-libc = "0.2"
-
-# Matrix ops (BLAS-accelerated)
-ndarray = { version = "0.16", features = ["blas"] }
-blas-src = { version = "0.10", features = ["accelerate"] }
+# Matrix ops — pure Rust matrixmultiply by default; BLAS added per-platform below.
+ndarray = "0.16"
 
 # Tokenizer
 tokenizers = "0.21"
 
+# macOS: Accelerate BLAS (no install required)
+[target.'cfg(target_os = "macos")'.dependencies]
+blas-src = { version = "0.10", features = ["accelerate"] }
+ndarray = { version = "0.16", features = ["blas"] }
+
+# Linux/BSD: OpenBLAS system library (links installed lib, doesn't build from source)
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+blas-src     = { version = "0.10", features = ["openblas"] }
+openblas-src = { version = "0.10", features = ["system"] }
+ndarray      = { version = "0.16", features = ["blas"] }
+
+# Unix only: madvise hints for mmap'd stores
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [features]
 default = []
 metal = ["larql-compute/metal"]
+cuda  = ["larql-compute/cuda"]
 
 [dev-dependencies]
 assert_approx_eq = "1"

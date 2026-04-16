@@ -28,13 +28,13 @@ sha2 = "0.10"
 safetensors = "0.5"
 memmap2 = "0.9"
 
-# OS-level mmap hints (madvise)
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
-# HuggingFace Hub integration
+# HuggingFace Hub integration (all platforms)
 hf-hub = "0.5"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
+
+# OS-level mmap hints (Unix only — madvise)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [features]
 default = []
