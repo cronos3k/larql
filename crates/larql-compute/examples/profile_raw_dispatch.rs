@@ -1,5 +1,6 @@
 //! Raw kernel dispatch: JUST the Q4_K matvec, nothing else. Measures pure GPU cost.
 
+#[cfg(unix)]
 extern crate blas_src;
 
 fn main() {

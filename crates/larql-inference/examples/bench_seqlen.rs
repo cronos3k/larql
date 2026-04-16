@@ -5,6 +5,7 @@
 //!   cargo run --release -p larql-inference --example bench_seqlen -- \
 //!     --vindex output/gemma3-4b-v2.vindex
 
+#[cfg(unix)]
 extern crate blas_src;
 
 use std::time::Instant;

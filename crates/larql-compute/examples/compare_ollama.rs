@@ -7,6 +7,7 @@
 //!
 //! Requires: ollama running locally with gemma3:4b loaded.
 
+#[cfg(unix)]
 extern crate blas_src;
 
 fn main() {

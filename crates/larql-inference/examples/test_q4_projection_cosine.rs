@@ -4,6 +4,7 @@
 //! Usage:
 //!   cargo run --release -p larql-inference --example test_q4_projection_cosine
 
+#[cfg(unix)]
 extern crate blas_src;
 
 use larql_inference::{InferenceModel, forward::forward_to_layer};

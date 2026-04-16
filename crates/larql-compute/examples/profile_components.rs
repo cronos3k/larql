@@ -1,5 +1,6 @@
 //! Component-level profiling: each operation isolated over 34 layers.
 
+#[cfg(unix)]
 extern crate blas_src;
 
 fn main() {

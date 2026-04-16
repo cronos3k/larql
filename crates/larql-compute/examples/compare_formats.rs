@@ -2,6 +2,7 @@
 //!
 //! Usage: cargo run --release --features metal -p larql-compute --example bench_q4kf_decode
 
+#[cfg(unix)]
 extern crate blas_src;
 
 fn main() {

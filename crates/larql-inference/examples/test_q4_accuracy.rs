@@ -6,6 +6,7 @@
 //! Usage:
 //!   cargo run --release -p larql-inference --example test_q4_accuracy
 
+#[cfg(unix)]
 extern crate blas_src;
 
 use larql_inference::{InferenceModel, predict};

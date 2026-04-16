@@ -13,6 +13,7 @@
 //!   cargo run --release -p larql-compute --example build_q4_transposed -- \
 //!     --vindex output/gemma3-4b-v2.vindex
 
+#[cfg(unix)]
 extern crate blas_src;
 
 use std::io::Write;

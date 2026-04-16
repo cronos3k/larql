@@ -7,6 +7,7 @@
 //!   cargo run --release -p larql-compute --example bench_down_transpose
 //!   cargo run --release -p larql-compute --features metal --example bench_down_transpose
 
+#[cfg(unix)]
 extern crate blas_src;
 
 use std::time::Instant;

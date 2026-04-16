@@ -23,7 +23,7 @@ pub fn kmeans(
 
     for _iter in 0..max_iterations {
         // BLAS: similarities = data @ centres.T → (n, k)
-        let cpu = larql_compute::CpuBackend;
+        let cpu = larql_compute::default_backend();
         use larql_compute::ComputeBackend;
         let sims = cpu.matmul_transb(data.view(), centres.view());
 
@@ -106,7 +106,7 @@ fn kmeans_pp_init(data: &Array2<f32>, k: usize) -> Array2<f32> {
         let prev = centres.row(c - 1);
         let dim = prev.len();
         let prev_2d = prev.view().into_shape_with_order((dim, 1)).unwrap();
-        let cpu = larql_compute::CpuBackend;
+        let cpu = larql_compute::default_backend();
         use larql_compute::ComputeBackend;
         let sims_2d = cpu.matmul(data.view(), prev_2d.view()); // [n, 1]
         let sims = ndarray::Array1::from_vec(sims_2d.into_raw_vec_and_offset().0);
