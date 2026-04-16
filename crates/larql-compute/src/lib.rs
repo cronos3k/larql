@@ -29,6 +29,9 @@
 //!   multi-layer pipeline, zero-copy mmap buffers.
 //! - `cuda`: (planned) CUDA GPU backend.
 
+// Pull in the platform BLAS backend on Unix (Accelerate on macOS, OpenBLAS on Linux).
+// On Windows we rely on ndarray's pure-Rust matrixmultiply backend instead.
+#[cfg(unix)]
 extern crate blas_src;
 
 pub mod backend;
@@ -37,6 +40,9 @@ pub mod pipeline;
 
 #[cfg(feature = "metal")]
 pub mod metal;
+
+#[cfg(feature = "cuda")]
+pub mod cuda;
 
 // ── Re-exports: pipeline types ──
 
@@ -55,11 +61,16 @@ pub use cpu::ops::vector::{dot, norm, cosine};
 #[cfg(feature = "metal")]
 pub use metal::MetalBackend;
 
+#[cfg(feature = "cuda")]
+pub use cuda::CudaBackend;
+
 /// Create the best available backend.
 ///
-/// With `--features metal`: tries Metal GPU first, auto-calibrates the
-/// FLOP threshold for hybrid CPU/GPU dispatch, falls back to CPU.
-/// Without: returns CPU (Accelerate BLAS on macOS, OpenBLAS on Linux).
+/// Priority: Metal (macOS) > CUDA (Windows/Linux) > CPU.
+///
+/// - `--features metal`: Metal GPU on macOS, auto-calibrates hybrid threshold.
+/// - `--features cuda`:  cuBLAS on any CUDA GPU (RTX 4090, etc.).
+/// - No GPU feature:     CPU — Accelerate on macOS, OpenBLAS on Linux, matrixmultiply on Windows.
 ///
 /// # Example
 /// ```rust,no_run
@@ -75,6 +86,15 @@ pub fn default_backend() -> Box<dyn ComputeBackend> {
         }
         eprintln!("[compute] Metal not available, falling back to CPU");
     }
+
+    #[cfg(feature = "cuda")]
+    {
+        if let Some(c) = cuda::CudaBackend::new() {
+            return Box::new(c);
+        }
+        eprintln!("[compute] CUDA not available, falling back to CPU");
+    }
+
     Box::new(cpu::CpuBackend)
 }
 
